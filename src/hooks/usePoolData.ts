@@ -187,7 +187,8 @@ async function fetchAllClientChannels(baseUrl: string): Promise<AggregatedClient
  */
 export function usePoolData() {
   const endpoints = getEndpointsCached();
-  const { data: mode, isLoading: modeLoading } = useStackMode();
+  const modeQuery = useStackMode();
+  const { data: mode, isLoading: modeLoading } = modeQuery;
   
   const baseUrl = mode === 'jdc' ? endpoints.jdc.base : endpoints.translator.base;
   
@@ -214,6 +215,15 @@ export function usePoolData() {
     enabled: !modeLoading && !!mode,
     refetchInterval: 3000,
   });
+
+  const refetchAll = async () => {
+    await Promise.allSettled([
+      modeQuery.refetch(),
+      globalQuery.refetch(),
+      serverChannelsQuery.refetch(),
+      clientChannelsQuery.refetch(),
+    ]);
+  };
   
   return {
     mode,
@@ -227,8 +237,10 @@ export function usePoolData() {
     // Keep 'channels' as alias for serverChannels for backward compatibility
     channels: serverChannelsQuery.data,
     isLoading: modeLoading || globalQuery.isLoading,
+    isFetching: modeQuery.isFetching || globalQuery.isFetching || serverChannelsQuery.isFetching || clientChannelsQuery.isFetching,
     isError: globalQuery.isError,
     error: globalQuery.error,
+    refetchAll,
   };
 }
 

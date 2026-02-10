@@ -1,12 +1,16 @@
-import { useState, useMemo } from 'react';
-import { Activity, Server, Search, RefreshCw, ArrowUpRight } from 'lucide-react';
+import { lazy, Suspense, useState, useMemo, useCallback } from 'react';
+import { Activity, Server, Search, RefreshCw, ArrowUpRight, Clock3 } from 'lucide-react';
 import { Shell } from '@/components/layout/Shell';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ConnectionAlert } from '@/components/data/ConnectionAlert';
 import { StatCard } from '@/components/data/StatCard';
-import { HashrateChart } from '@/components/data/HashrateChart';
 import { Sv1ClientTable } from '@/components/data/Sv1ClientTable';
-import { 
-  usePoolData, 
-  useSv1ClientsData, 
+import {
+  usePoolData,
+  useSv1ClientsData,
   useTranslatorHealth,
   useJdcHealth,
 } from '@/hooks/usePoolData';
@@ -14,86 +18,79 @@ import { useHashrateHistory } from '@/hooks/useHashrateHistory';
 import { formatHashrate, formatUptime, formatDifficulty } from '@/lib/utils';
 import type { Sv1ClientInfo } from '@/types/api';
 import { useUiConfig } from '@/hooks/useUiConfig';
+import { cn } from '@/lib/utils';
 
-/**
- * Unified Dashboard for the SV2 Mining Stack.
- * 
- * This dashboard presents a single, consistent view regardless of deployment:
- * - Non-JD mode: Pool ← Translator ← SV1 Clients
- * - JD mode: Pool ← JDC ← Translator ← SV1 Clients
- * 
- * The "Pool data" (shares, hashrate, channels) always comes from:
- * - JDC's upstream (if JD mode)
- * - Translator's upstream (if non-JD mode)
- * 
- * SV1 Clients always come from Translator.
- */
+const HashrateChart = lazy(async () => {
+  const module = await import('@/components/data/HashrateChart');
+  return { default: module.HashrateChart };
+});
+
 export function UnifiedDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [manualRetrying, setManualRetrying] = useState(false);
   const itemsPerPage = 15;
   const { config } = useUiConfig();
 
-  // Data from JDC or Translator depending on mode
-  const { 
-    modeLabel, 
-    isJdMode, 
-    global: poolGlobal, 
-    clientChannels,  // Downstream client channels (for hashrate, best diff)
-    serverChannels,  // Upstream server channels (for shares to Pool)
-    isLoading: poolLoading, 
-    isError: poolError 
+  const {
+    modeLabel,
+    isJdMode,
+    global: poolGlobal,
+    clientChannels,
+    serverChannels,
+    isLoading: poolLoading,
+    isFetching: poolFetching,
+    isError: poolError,
+    refetchAll,
   } = usePoolData();
 
-  // SV1 clients (always from Translator)
-  const { 
-    data: sv1Data, 
+  const {
+    data: sv1Data,
     isLoading: sv1Loading,
+    isFetching: sv1Fetching,
     refetch: refetchSv1,
-  } = useSv1ClientsData(0, 1000); // Fetch all for client-side filtering
+  } = useSv1ClientsData(0, 1000);
 
-  // Health checks for status indicators
-  const { data: translatorOk } = useTranslatorHealth();
-  const { data: jdcOk } = useJdcHealth();
+  const {
+    data: translatorOk,
+    refetch: refetchTranslatorHealth,
+    isFetching: translatorChecking,
+  } = useTranslatorHealth();
+  const {
+    data: jdcOk,
+    refetch: refetchJdcHealth,
+    isFetching: jdcChecking,
+  } = useJdcHealth();
 
-  // SV1 client stats (from Translator)
   const allClients = sv1Data?.items || [];
   const activeClients = allClients.filter((c: Sv1ClientInfo) => c.hashrate !== null);
   const totalClients = sv1Data?.total || 0;
   const activeCount = activeClients.length;
 
-  // Calculate total hashrate from SV1 clients
-  const sv1TotalHashrate = useMemo(() => {
-    return allClients.reduce((sum, c) => sum + (c.hashrate || 0), 0);
-  }, [allClients]);
+  const sv1TotalHashrate = useMemo(
+    () => allClients.reduce((sum, c) => sum + (c.hashrate || 0), 0),
+    [allClients]
+  );
 
-  // Total hashrate:
-  // - JD mode: from SV2 client channels (poolGlobal.clients.total_hashrate)
-  // - Translator-only mode: from SV1 clients
-  const totalHashrate = isJdMode 
+  const totalHashrate = isJdMode
     ? (poolGlobal?.clients.total_hashrate || 0)
     : sv1TotalHashrate;
 
-  const totalClientChannels = isJdMode 
+  const totalClientChannels = isJdMode
     ? (poolGlobal?.clients.total_channels || 0)
     : activeCount;
 
   const uptime = poolGlobal?.uptime_secs || 0;
-
-  // Build hashrate history from real-time data
   const hashrateHistory = useHashrateHistory(totalHashrate);
 
-  // Shares data from upstream SERVER channels (shares sent TO the Pool)
   const shareStats = useMemo(() => {
     if (!serverChannels) {
       return { accepted: 0, submitted: 0 };
     }
-    
-    // Shares accepted by the Pool
+
     const extAccepted = serverChannels.extended_channels.reduce((sum, ch) => sum + ch.shares_accepted, 0);
     const stdAccepted = serverChannels.standard_channels.reduce((sum, ch) => sum + ch.shares_accepted, 0);
-    
-    // Submitted = latest sequence number (max across all upstream channels)
+
     const extLatest = serverChannels.extended_channels.length
       ? Math.max(...serverChannels.extended_channels.map((ch) => ch.last_share_sequence_number))
       : 0;
@@ -101,155 +98,205 @@ export function UnifiedDashboard() {
       ? Math.max(...serverChannels.standard_channels.map((ch) => ch.last_share_sequence_number))
       : 0;
     const submitted = Math.max(extLatest, stdLatest);
-    
+
     return {
       accepted: extAccepted + stdAccepted,
       submitted,
     };
   }, [serverChannels]);
 
-  // Best difficulty:
-  // - JD mode: from SV2 client channels
-  // - Translator-only mode: not available from SV1 clients API (no best_diff field)
   const bestDiff = useMemo(() => {
     if (!isJdMode) {
-      // Translator doesn't expose best_diff for SV1 clients
-      // We could potentially get it from server channels instead
       if (!serverChannels) return 0;
-      const extBest = Math.max(...serverChannels.extended_channels.map(ch => ch.best_diff), 0);
-      const stdBest = Math.max(...serverChannels.standard_channels.map(ch => ch.best_diff), 0);
+      const extBest = Math.max(...serverChannels.extended_channels.map((ch) => ch.best_diff), 0);
+      const stdBest = Math.max(...serverChannels.standard_channels.map((ch) => ch.best_diff), 0);
       return Math.max(extBest, stdBest);
     }
-    
+
     if (!clientChannels) return 0;
-    
-    const extBest = Math.max(...clientChannels.extended_channels.map(ch => ch.best_diff), 0);
-    const stdBest = Math.max(...clientChannels.standard_channels.map(ch => ch.best_diff), 0);
-    
+
+    const extBest = Math.max(...clientChannels.extended_channels.map((ch) => ch.best_diff), 0);
+    const stdBest = Math.max(...clientChannels.standard_channels.map((ch) => ch.best_diff), 0);
+
     return Math.max(extBest, stdBest);
   }, [isJdMode, clientChannels, serverChannels]);
 
-  // Number of upstream pool channels (for shares subtitle)
   const poolChannelCount = (serverChannels?.total_extended || 0) + (serverChannels?.total_standard || 0);
-  
-  // Number of client channels (for best diff subtitle)
-  const clientChannelCount = isJdMode 
+
+  const clientChannelCount = isJdMode
     ? (clientChannels?.total_extended || 0) + (clientChannels?.total_standard || 0)
     : activeCount;
-  
-  // Calculate acceptance rate
-  const acceptanceRate = shareStats.submitted > 0 
-    ? ((shareStats.accepted / shareStats.submitted) * 100).toFixed(2) 
+
+  const acceptanceRate = shareStats.submitted > 0
+    ? ((shareStats.accepted / shareStats.submitted) * 100).toFixed(2)
     : '0.00';
 
-  // Filter clients by search
+  const hashrateTrend = useMemo(() => {
+    if (hashrateHistory.length < 2) return undefined;
+    const previous = hashrateHistory[hashrateHistory.length - 2]?.hashrate || 0;
+    const current = hashrateHistory[hashrateHistory.length - 1]?.hashrate || 0;
+    if (previous <= 0) return undefined;
+
+    const change = ((current - previous) / previous) * 100;
+    return {
+      value: Number(Math.abs(change).toFixed(2)),
+      isPositive: change >= 0,
+    };
+  }, [hashrateHistory]);
+
   const filteredClients = useMemo(() => {
     if (!searchTerm) return allClients;
     const term = searchTerm.toLowerCase();
-    return allClients.filter((c: Sv1ClientInfo) => 
+    return allClients.filter((c: Sv1ClientInfo) =>
       c.authorized_worker_name?.toLowerCase().includes(term) ||
       c.user_identity?.toLowerCase().includes(term)
     );
   }, [allClients, searchTerm]);
 
-  // Pagination
   const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
   const paginatedClients = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredClients.slice(start, start + itemsPerPage);
   }, [filteredClients, currentPage, itemsPerPage]);
 
+  const hasTelemetryData = Boolean(poolGlobal || serverChannels || clientChannels || allClients.length > 0);
+  const canRenderData = !poolLoading && (!poolError || hasTelemetryData);
+  const showHardErrorState = poolError && !hasTelemetryData;
+  const servicesReachable = Boolean(translatorOk || jdcOk);
+  const isRetrying = manualRetrying || poolFetching || sv1Fetching || translatorChecking || jdcChecking;
+
+  const handleRefreshAll = useCallback(async () => {
+    setManualRetrying(true);
+    await Promise.allSettled([
+      refetchAll(),
+      refetchSv1(),
+      refetchTranslatorHealth(),
+      refetchJdcHealth(),
+    ]);
+    setManualRetrying(false);
+  }, [refetchAll, refetchSv1, refetchTranslatorHealth, refetchJdcHealth]);
+
   return (
     <Shell appMode="translator" appName={config.appName}>
-      {/* Connection Status Banner */}
-      <div className="flex items-center gap-4 text-sm mb-2">
-        <div className="flex items-center gap-2">
-          <div className={`h-2 w-2 rounded-full ${translatorOk ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-muted-foreground">Translator</span>
-        </div>
+      <PageHeader
+        title="Mining Operations"
+        description="Live Translator and JD Client telemetry."
+        actions={
+          <Button variant={poolError ? 'default' : 'outline'} onClick={handleRefreshAll} className="gap-2" disabled={isRetrying}>
+            <RefreshCw className={cn('h-4 w-4 transition-transform', isRetrying && 'animate-spin')} />
+            {poolError ? (isRetrying ? 'Reconnecting...' : 'Reconnect') : (isRetrying ? 'Refreshing...' : 'Refresh')}
+          </Button>
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="status-pill">
+          <span className={`h-2 w-2 rounded-full ${translatorOk ? 'bg-sv2-green' : 'bg-sv2-red'}`} />
+          Translator
+        </span>
         {isJdMode && (
-          <div className="flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${jdcOk ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-muted-foreground">JD Client</span>
-          </div>
+          <span className="status-pill">
+            <span className={`h-2 w-2 rounded-full ${jdcOk ? 'bg-sv2-green' : 'bg-sv2-red'}`} />
+            JD Client
+          </span>
         )}
-        <span className="text-xs text-muted-foreground ml-auto">
-          Pool data via {modeLabel} • Uptime: {formatUptime(uptime)}
+        <span className="status-pill">Via {modeLabel}</span>
+        <span className="status-pill">
+          <Clock3 className="h-3.5 w-3.5" />
+          Uptime {formatUptime(uptime)}
         </span>
       </div>
 
-      {/* Hero Stats Section - Matches Replit */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {poolLoading && !hasTelemetryData && (
+        <ConnectionAlert
+          tone="loading"
+          title="Connecting to monitoring services"
+          message="Attempting to reach Translator and optional JD Client monitoring endpoints."
+          detail="The dashboard retries every 3 seconds and will populate automatically once telemetry is available."
+        />
+      )}
+
+      {poolError && (
+        <ConnectionAlert
+          tone={hasTelemetryData ? 'warning' : 'error'}
+          title={hasTelemetryData ? 'Connection degraded' : 'Disconnected'}
+          message={hasTelemetryData
+            ? 'Telemetry updates are temporarily unavailable. The values on screen may be stale.'
+            : 'Failed to connect. Ensure Translator (and optional JD Client) monitoring endpoints are reachable.'}
+          detail={servicesReachable
+            ? 'Health checks are reachable, but telemetry requests failed. Verify endpoint URLs, /api/v1 paths, and proxy/CORS settings in Settings.'
+            : 'Neither Translator nor JD Client health endpoint is reachable. Confirm services are running and expected ports are exposed, then reconnect.'}
+          onRetry={handleRefreshAll}
+          retrying={isRetrying}
+          retryLabel="Reconnect"
+        />
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Total Hashrate"
           value={formatHashrate(totalHashrate)}
-          icon={<Activity className="h-4 w-4 text-green-500" />}
-          subtitle={`${totalClientChannels} client channel(s)`}
-          trend={totalHashrate > 0 ? { value: 2.5, isPositive: true } : undefined}
+          icon={<Activity className="h-4 w-4" />}
+          subtitle={`${totalClientChannels} active channel(s)`}
+          trend={hashrateTrend}
         />
 
         <StatCard
-          title="Active Workers"
-          value={
-            <span>
-              {activeCount} <span className="text-muted-foreground text-lg">/ {totalClients}</span>
-            </span>
-          }
-          icon={<Server className="h-4 w-4 text-primary" />}
-          subtitle={`${totalClients - activeCount} offline workers`}
+          title="Workers Online"
+          value={`${activeCount} / ${totalClients}`}
+          icon={<Server className="h-4 w-4" />}
+          subtitle={`${Math.max(totalClients - activeCount, 0)} offline`}
         />
 
         <StatCard
           title="Shares to Pool"
-          value={
-            <span>
-              {shareStats.accepted.toLocaleString()} 
-              <span className="text-muted-foreground text-lg"> / {shareStats.submitted.toLocaleString()}</span>
-            </span>
-          }
-          icon={<ArrowUpRight className="h-4 w-4 text-green-500" />}
-          subtitle={`${acceptanceRate}% accepted via ${poolChannelCount} channel(s)`}
+          value={`${shareStats.accepted.toLocaleString()} / ${shareStats.submitted.toLocaleString()}`}
+          icon={<ArrowUpRight className="h-4 w-4" />}
+          subtitle={`${acceptanceRate}% accepted across ${poolChannelCount} channel(s)`}
         />
 
         <StatCard
           title="Best Difficulty"
           value={bestDiff > 0 ? formatDifficulty(bestDiff) : '-'}
-          icon={<Activity className="h-4 w-4 text-primary" />}
-          subtitle={`from ${clientChannelCount} client channel(s)`}
+          icon={<Activity className="h-4 w-4" />}
+          subtitle={`From ${clientChannelCount} client channel(s)`}
         />
       </div>
 
-      {/* Main Chart - Real data accumulated over time */}
-      <HashrateChart 
-        data={hashrateHistory}
-        title="Hashrate History"
-        description="Real-time data collected since page load"
-      />
+      <Suspense fallback={<ChartLoadingFallback />}>
+        <HashrateChart
+          data={hashrateHistory}
+          title="Hashrate Trend"
+          description="Session samples."
+        />
+      </Suspense>
 
-      {/* Loading / Error States */}
-      {poolLoading && (
-        <div className="rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm p-8 text-center text-muted-foreground">
-          Connecting to monitoring API...
+      {poolLoading && !hasTelemetryData && <DashboardLoadingState />}
+
+      {showHardErrorState && (
+        <div className="loading-surface p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            No telemetry has been received yet. Verify endpoint configuration in Settings, then reconnect to retry all monitoring requests.
+          </p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={handleRefreshAll} disabled={isRetrying} className="gap-2">
+              <RefreshCw className={cn('h-4 w-4 transition-transform', isRetrying && 'animate-spin')} />
+              {isRetrying ? 'Retrying...' : 'Retry now'}
+            </Button>
+          </div>
         </div>
       )}
 
-      {poolError && (
-        <div className="rounded-xl border border-red-500/40 bg-red-500/10 backdrop-blur-sm p-8 text-center text-red-500">
-          Failed to connect. Make sure Translator (and optionally JDC) are running with monitoring enabled.
-        </div>
-      )}
-
-      {/* Actions Bar - Sticky Header (Matches Replit) */}
-      {!poolLoading && !poolError && (
-        <div className="sticky top-0 z-30 bg-background/60 backdrop-blur-xl py-3 -mx-6 px-6 md:-mx-8 md:px-8 border-y border-border/40 transition-all duration-200 shadow-sm supports-[backdrop-filter]:bg-background/60 mt-8 mb-0">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 max-w-7xl mx-auto">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="relative w-full sm:w-72">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
+      {canRenderData && (
+        <>
+          <div className="glass-card sticky top-0 z-30 border-border px-4 py-4 md:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full md:max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
                   type="text"
-                  placeholder="Search workers..."
-                  className="w-full pl-9 h-9 bg-muted/30 border border-border/50 focus:bg-background transition-all rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="Search workers"
+                  className="pl-9"
                   value={searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
@@ -257,55 +304,66 @@ export function UnifiedDashboard() {
                   }}
                 />
               </div>
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-              <button
-                onClick={() => refetchSv1()}
-                className="h-9 px-3 rounded-lg border border-border/50 bg-muted/30 hover:bg-background transition-colors flex items-center gap-2 text-sm"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Refresh
-              </button>
+              <span className="text-sm text-muted-foreground">
+                Showing {paginatedClients.length} of {filteredClients.length} workers
+              </span>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Workers Table */}
-      {!poolLoading && !poolError && (
-        <>
-          <Sv1ClientTable
-            clients={paginatedClients}
-            isLoading={sv1Loading}
-          />
+          <Sv1ClientTable clients={paginatedClients} isLoading={sv1Loading} />
 
-          {/* Pagination Footer */}
           {filteredClients.length > itemsPerPage && (
-            <div className="flex items-center justify-between mt-4">
-              <div className="text-sm text-muted-foreground">
-                Showing {paginatedClients.length} of {filteredClients.length} workers
-              </div>
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <span className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1.5 text-sm border border-border/50 rounded-lg hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Previous
-                </button>
-                <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 text-sm border border-border/50 rounded-lg hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Next
-                </button>
+                </Button>
               </div>
             </div>
           )}
         </>
       )}
     </Shell>
+  );
+}
+
+function DashboardLoadingState() {
+  return (
+    <div className="loading-surface p-5 md:p-6">
+      <div className="space-y-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Skeleton className="h-32 rounded-2xl" />
+          <Skeleton className="h-32 rounded-2xl" />
+          <Skeleton className="h-32 rounded-2xl" />
+          <Skeleton className="h-32 rounded-2xl" />
+        </div>
+        <Skeleton className="h-[260px] rounded-2xl" />
+        <Skeleton className="h-12 rounded-xl" />
+        <Skeleton className="h-56 rounded-2xl" />
+      </div>
+    </div>
+  );
+}
+
+function ChartLoadingFallback() {
+  return (
+    <div className="loading-surface p-6">
+      <div className="space-y-4">
+        <Skeleton className="h-6 w-56 rounded-lg" />
+        <Skeleton className="h-[248px] rounded-2xl" />
+      </div>
+    </div>
   );
 }

@@ -16,10 +16,6 @@ interface StatCardProps {
   className?: string;
 }
 
-/**
- * A card component for displaying a single statistic.
- * Matches Replit UI styling - glass-card with border-none.
- */
 export function StatCard({
   title,
   value,
@@ -29,41 +25,32 @@ export function StatCard({
   className,
 }: StatCardProps) {
   return (
-    <Card className={cn('glass-card border-none shadow-md bg-card/40', className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
-        </CardTitle>
-        {icon && (
-          <div className="text-muted-foreground">
-            {icon}
-          </div>
-        )}
+    <Card className={cn('glass-card', className)}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{title}</CardTitle>
+          {icon && <div className="text-primary">{icon}</div>}
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold font-mono tracking-tight">
-          {value}
-        </div>
+        <div className="text-2xl font-semibold tracking-tight md:text-[1.8rem]">{value}</div>
         {(subtitle || trend) && (
-          <p className="text-xs text-muted-foreground mt-1">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {trend && (
               <span
                 className={cn(
-                  'font-medium inline-flex items-center',
-                  trend.isPositive ? 'text-green-500' : 'text-red-500'
+                  'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium',
+                  trend.isPositive
+                    ? 'text-sv2-green'
+                    : 'text-sv2-red'
                 )}
               >
-                {trend.isPositive ? (
-                  <ArrowUpRight className="h-3 w-3 mr-1" />
-                ) : (
-                  <ArrowDownRight className="h-3 w-3 mr-1" />
-                )}
+                {trend.isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                 {trend.isPositive ? '+' : ''}{trend.value}%
               </span>
             )}
-            {trend && subtitle && ' '}
-            {subtitle}
-          </p>
+            {subtitle && <span className="text-muted-foreground">{subtitle}</span>}
+          </div>
         )}
       </CardContent>
     </Card>

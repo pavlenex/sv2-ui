@@ -11,7 +11,7 @@ const STORAGE_KEY = 'sv2-ui-config';
 const DEFAULT_CONFIG: UiConfig = {
   appName: 'SV2 Mining Stack',
   // Match current light secondary from index.css
-  secondary: '240 5% 96%',
+  secondary: '220 20% 96%',
 };
 
 function loadConfig(): UiConfig {
@@ -63,4 +63,3 @@ export function useUiConfig() {
 
   return { config, updateConfig };
 }
-
