@@ -111,30 +111,12 @@ export function UnifiedDashboard() {
   // Build hashrate history from real-time data
   const hashrateHistory = useHashrateHistory(totalHashrate);
 
-  // Shares data from upstream SERVER channels (shares sent TO the Pool)
-  const shareStats = useMemo(() => {
-    if (!serverChannels) {
-      return { accepted: 0, submitted: 0 };
-    }
-
-    // Shares accepted by the Pool
-    const extAccepted = serverChannels.extended_channels.reduce((sum, ch) => sum + (ch.shares_accepted || 0), 0);
-    const stdAccepted = serverChannels.standard_channels.reduce((sum, ch) => sum + (ch.shares_accepted || 0), 0);
-
-    // Submitted: API may return shares_submitted or last_share_sequence_number
-    // Use whichever is available, with safe fallback
-    const extSubmitted = serverChannels.extended_channels.reduce(
-      (sum, ch) => sum + (ch.shares_submitted ?? ch.last_share_sequence_number ?? 0), 0
-    );
-    const stdSubmitted = serverChannels.standard_channels.reduce(
-      (sum, ch) => sum + (ch.shares_submitted ?? ch.last_share_sequence_number ?? 0), 0
-    );
-    const submitted = extSubmitted + stdSubmitted;
-
-    return {
-      accepted: extAccepted + stdAccepted,
-      submitted,
-    };
+  // Shares accepted by the Pool (from upstream server channels)
+  const sharesAccepted = useMemo(() => {
+    if (!serverChannels) return 0;
+    const ext = serverChannels.extended_channels.reduce((sum, ch) => sum + (ch.shares_accepted || 0), 0);
+    const std = serverChannels.standard_channels.reduce((sum, ch) => sum + (ch.shares_accepted || 0), 0);
+    return ext + std;
   }, [serverChannels]);
 
   // Best difficulty:
@@ -158,10 +140,6 @@ export function UnifiedDashboard() {
     return Math.max(extBest, stdBest);
   }, [isJdMode, clientChannels, serverChannels]);
 
-  // Calculate acceptance rate
-  const acceptanceRate = shareStats.submitted > 0 
-    ? ((shareStats.accepted / shareStats.submitted) * 100).toFixed(2) 
-    : '0.00';
 
   // Build channel lookup for worker name resolution in sorting
   const channelById = useMemo(() => {
@@ -253,9 +231,8 @@ export function UnifiedDashboard() {
           value={`${activeCount} / ${totalClients}`}
         />
         <StatCard
-          title="Shares"
-          value={`${shareStats.accepted.toLocaleString()} / ${shareStats.submitted.toLocaleString()}`}
-          subtitle={`${acceptanceRate}% accepted`}
+          title="Shares Accepted"
+          value={sharesAccepted.toLocaleString()}
         />
         <StatCard
           title="Best Diff"
