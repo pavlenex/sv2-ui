@@ -13,6 +13,7 @@ export default defineConfig({
   // In development, proxy API requests to the monitoring servers
   // This avoids CORS issues when fetching from different origins
   server: {
+    open: true,
     proxy: {
       // Proxy requests to JDC (port 9091)
       '/jdc-api': {

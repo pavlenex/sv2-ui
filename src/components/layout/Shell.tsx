@@ -7,7 +7,7 @@ import {
   Moon,
   Menu,
   X,
-  BarChart3,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConnectionStatus, getConnectionState } from '@/components/data/ConnectionStatus';
@@ -57,14 +57,16 @@ export function Shell({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   
   // Check health of both services
-  const { data: translatorOk, isLoading: translatorLoading } = useTranslatorHealth();
-  const { data: jdcOk, isLoading: jdcLoading } = useJdcHealth();
+  const { data: translatorOk, isLoading: translatorLoading, dataUpdatedAt: translatorUpdatedAt } = useTranslatorHealth();
+  const { data: jdcOk, isLoading: jdcLoading, dataUpdatedAt: jdcUpdatedAt } = useJdcHealth();
   
   // Consider connected if at least one service is available
   const isLoading = translatorLoading && jdcLoading;
   const isSuccess = Boolean(translatorOk || jdcOk);
   const isError = !isLoading && !isSuccess;
   
+  const lastUpdated = Math.max(translatorUpdatedAt || 0, jdcUpdatedAt || 0) || undefined;
+
   const features = getAppFeatures(appMode);
 
   const navItems = getNavItems(features, appMode);
@@ -140,15 +142,8 @@ export function Shell({
             })}
           </nav>
 
-          {/* Footer */}
-          <div className="border-t border-border p-4">
-            <div className="px-2">
-              <ConnectionStatus
-                state={getConnectionState(isLoading, isError, isSuccess)}
-                label={isSuccess ? 'API Connected' : undefined}
-              />
-            </div>
-          </div>
+          {/* Footer spacer */}
+          <div className="shrink-0 h-4" />
         </div>
       </aside>
 
@@ -162,6 +157,13 @@ export function Shell({
           >
             <Menu className="h-5 w-5" />
           </button>
+          <div className="flex items-center gap-2 ml-2 md:ml-0">
+            <ConnectionStatus
+              state={getConnectionState(isLoading, isError, isSuccess)}
+              label={isSuccess ? 'API Connected' : undefined}
+              lastUpdated={lastUpdated}
+            />
+          </div>
           <div className="flex-1" />
           <button
             onClick={toggle}
@@ -175,6 +177,18 @@ export function Shell({
             )}
           </button>
         </div>
+
+        {/* Connection Banner */}
+        {(isLoading || isError) && (
+          <div className="flex items-center gap-2.5 px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-sm shrink-0">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-yellow-500 shrink-0" />
+            <span className="text-yellow-500">
+              {isLoading
+                ? 'Connecting to monitoring API…'
+                : 'Reconnecting — make sure Translator (or JDC) is running'}
+            </span>
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-5 md:p-6">
@@ -196,7 +210,6 @@ interface NavItem {
 function getNavItems(_features: AppFeatures, _appMode: AppMode): NavItem[] {
   return [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
-    { icon: BarChart3, label: 'Pool Stats', href: '/pool-stats' },
     { icon: Settings, label: 'Settings', href: '/settings' },
   ];
 }

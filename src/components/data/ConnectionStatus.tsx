@@ -6,16 +6,26 @@ interface ConnectionStatusProps {
   state: ConnectionState;
   label?: string;
   className?: string;
+  lastUpdated?: number;
+}
+
+function formatLastUpdated(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
 }
 
 /**
  * A visual indicator for connection status.
- * Shows a colored dot with optional label.
+ * Shows a colored dot with optional label and last-updated time.
  */
 export function ConnectionStatus({
   state,
   label,
   className,
+  lastUpdated,
 }: ConnectionStatusProps) {
   const stateConfig: Record<ConnectionState, { color: string; text: string }> = {
     connected: { color: 'bg-cyan-400 shadow-[0_0_8px_hsl(187,92%,60%,0.4)]', text: 'Connected' },
@@ -37,6 +47,11 @@ export function ConnectionStatus({
       <span className="text-sm text-muted-foreground">
         {label || config.text}
       </span>
+      {lastUpdated && state === 'connected' && (
+        <span className="text-xs text-muted-foreground/60">
+          · {formatLastUpdated(lastUpdated)}
+        </span>
+      )}
     </div>
   );
 }

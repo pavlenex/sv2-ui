@@ -299,3 +299,25 @@ export function useJdcHealth() {
 export function getEndpointConfig() {
   return getEndpointsCached();
 }
+
+/**
+ * Derive the mining endpoint (where miners should connect) from the Translator URL.
+ * The mining port defaults to 34255 but can be overridden via ?mining_port= URL param.
+ */
+export function getMiningEndpoint(): string {
+  const endpoints = getEndpointsCached();
+  const urlParams = new URLSearchParams(window.location.search);
+  const miningPort = urlParams.get('mining_port') || '34255';
+
+  // Extract host from translator base URL
+  try {
+    // In dev mode the base is a relative path like /translator-api/v1
+    if (isDev) {
+      return `stratum+tcp://${window.location.hostname}:${miningPort}`;
+    }
+    const url = new URL(endpoints.translator.base);
+    return `stratum+tcp://${url.hostname}:${miningPort}`;
+  } catch {
+    return `stratum+tcp://localhost:${miningPort}`;
+  }
+}

@@ -65,7 +65,8 @@ export function truncateHex(hex: string, chars: number = 6): string {
 /**
  * Formats a number with thousands separators.
  */
-export function formatNumber(num: number, decimals: number = 0): string {
+export function formatNumber(num: number | undefined | null, decimals: number = 0): string {
+  if (num == null) return '0';
   return num.toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,

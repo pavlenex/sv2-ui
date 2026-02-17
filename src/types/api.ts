@@ -22,7 +22,8 @@ export interface ServerExtendedChannelInfo {
   version_rolling: boolean;
   shares_accepted: number;
   share_work_sum: number;
-  shares_submitted: number;
+  shares_submitted?: number;
+  last_share_sequence_number?: number;
   best_diff: number;
 }
 
@@ -37,7 +38,8 @@ export interface ServerStandardChannelInfo {
   extranonce_prefix_hex: string;
   shares_accepted: number;
   share_work_sum: number;
-  shares_submitted: number;
+  shares_submitted?: number;
+  last_share_sequence_number?: number;
   best_diff: number;
 }
 

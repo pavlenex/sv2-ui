@@ -26,7 +26,7 @@ export function Settings({ appMode = 'translator' }: SettingsProps) {
   const { data: translatorOk, isLoading: translatorLoading } = useTranslatorHealth();
   const { data: jdcOk, isLoading: jdcLoading } = useJdcHealth();
   const endpoints = getEndpointConfig();
-  const { config, updateConfig } = useUiConfig();
+  const { config, updateConfig, resetConfig } = useUiConfig();
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -386,13 +386,21 @@ export function Settings({ appMode = 'translator' }: SettingsProps) {
                     <Input
                       id="secondary-color"
                       type="color"
-                      value={hslToHex(config.secondary)}
+                      value={config.secondary ? hslToHex(config.secondary) : '#f5f5f5'}
                       onChange={(e) => updateConfig({ secondary: hexToHslTriplet(e.target.value) })}
                       className="w-24 h-10 p-1 cursor-pointer"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Controls the secondary surfaces (e.g. subtle backgrounds). Applies to both light and dark themes.
+                      {config.secondary
+                        ? 'Controls the secondary surfaces (e.g. subtle backgrounds). Applies to both light and dark themes.'
+                        : 'Using theme defaults. Pick a color to override.'}
                     </p>
+                  </div>
+
+                  <div className="pt-4 border-t border-border/40">
+                    <Button variant="outline" onClick={resetConfig}>
+                      Reset to defaults
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

@@ -10,7 +10,7 @@ const STORAGE_KEY = 'sv2-ui-config';
 
 const DEFAULT_CONFIG: UiConfig = {
   appName: 'SV2 Mining Stack',
-  secondary: '0 0% 96%',
+  secondary: '',
 };
 
 function loadConfig(): UiConfig {
@@ -21,7 +21,7 @@ function loadConfig(): UiConfig {
     const parsed = JSON.parse(raw) as Partial<UiConfig>;
     return {
       appName: parsed.appName || DEFAULT_CONFIG.appName,
-      secondary: parsed.secondary || DEFAULT_CONFIG.secondary,
+      secondary: parsed.secondary ?? DEFAULT_CONFIG.secondary,
     };
   } catch {
     return DEFAULT_CONFIG;
@@ -40,12 +40,14 @@ function applyCssVariables(config: UiConfig) {
   // Ensure sidebar base color comes from CSS theme, not overrides
   root.style.removeProperty('--sidebar');
 
-  // Drive secondary-like surfaces from a single configurable color
-  root.style.setProperty('--secondary', config.secondary);
-  root.style.setProperty('--muted', config.secondary);
-  root.style.setProperty('--accent', config.secondary);
-  // Only tint the sidebar entry backgrounds, not the whole sidebar
-  root.style.setProperty('--sidebar-accent', config.secondary);
+  const vars = ['--secondary', '--muted', '--accent', '--sidebar-accent'];
+  if (config.secondary) {
+    // Drive secondary-like surfaces from a single configurable color
+    for (const v of vars) root.style.setProperty(v, config.secondary);
+  } else {
+    // No override — fall back to theme defaults
+    for (const v of vars) root.style.removeProperty(v);
+  }
 }
 
 export function useUiConfig() {
@@ -60,6 +62,10 @@ export function useUiConfig() {
     setConfig((prev) => ({ ...prev, ...partial }));
   };
 
-  return { config, updateConfig };
+  const resetConfig = () => {
+    setConfig(DEFAULT_CONFIG);
+  };
+
+  return { config, updateConfig, resetConfig };
 }
 

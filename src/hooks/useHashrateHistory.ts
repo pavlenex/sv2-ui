@@ -19,20 +19,31 @@ const SAMPLE_INTERVAL_MS = 5000; // Sample every 5 seconds
 export function useHashrateHistory(currentHashrate: number | undefined): HashrateDataPoint[] {
   const [history, setHistory] = useState<HashrateDataPoint[]>([]);
   const lastSampleTime = useRef<number>(0);
+  const lastValue = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (currentHashrate === undefined || currentHashrate === null) return;
+    // Skip zero values — don't pollute chart with pre-load zeros
+    if (currentHashrate === 0) return;
 
     const now = Date.now();
-    
+
     // Only add a new sample if enough time has passed
     if (now - lastSampleTime.current < SAMPLE_INTERVAL_MS) return;
-    
+
+    // Skip duplicate consecutive values to reduce noise
+    if (currentHashrate === lastValue.current && history.length > 2) {
+      // Still record a point but throttle more aggressively for flat lines
+      if (now - lastSampleTime.current < SAMPLE_INTERVAL_MS * 2) return;
+    }
+
     lastSampleTime.current = now;
-    
+    lastValue.current = currentHashrate;
+
     const timeStr = new Date(now).toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
       hour12: false,
     });
 
@@ -42,17 +53,17 @@ export function useHashrateHistory(currentHashrate: number | undefined): Hashrat
         timestamp: now,
         hashrate: currentHashrate,
       };
-      
+
       const updated = [...prev, newPoint];
-      
+
       // Keep only the last MAX_HISTORY_POINTS
       if (updated.length > MAX_HISTORY_POINTS) {
         return updated.slice(-MAX_HISTORY_POINTS);
       }
-      
+
       return updated;
     });
-  }, [currentHashrate]);
+  }, [currentHashrate, history.length]);
 
   return history;
 }
