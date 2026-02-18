@@ -171,19 +171,6 @@ export function UnifiedDashboard() {
         description={`Uptime: ${formatUptime(uptime)}`}
       />
 
-      {/* Loading / Error */}
-      {poolLoading && (
-        <div className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">
-          Connecting to monitoring API...
-        </div>
-      )}
-
-      {poolError && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-center text-sm text-red-400">
-          Failed to connect. Make sure Translator (and optionally JDC) are running.
-        </div>
-      )}
-
       {/* Workers */}
       {!poolLoading && !poolError && (
         <>

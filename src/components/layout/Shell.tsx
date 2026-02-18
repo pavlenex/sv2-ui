@@ -15,6 +15,18 @@ import { useTranslatorHealth, useJdcHealth } from '@/hooks/usePoolData';
 import type { AppMode, AppFeatures } from '@/types/api';
 import { getAppFeatures } from '@/types/api';
 
+/**
+ * Short absolute time (e.g. "11:20:15 AM").
+ * For a real-time dashboard polling every few seconds, a ticking clock
+ */
+function formatShortTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 // Theme hook
 function useTheme() {
   const [isDark, setIsDark] = useState(() => {
@@ -57,14 +69,17 @@ export function Shell({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   
   // Check health of both services
-  const { data: translatorOk, isLoading: translatorLoading } = useTranslatorHealth();
-  const { data: jdcOk, isLoading: jdcLoading } = useJdcHealth();
+  const { data: translatorOk, isLoading: translatorLoading, dataUpdatedAt: translatorUpdatedAt } = useTranslatorHealth();
+  const { data: jdcOk, isLoading: jdcLoading, dataUpdatedAt: jdcUpdatedAt } = useJdcHealth();
   
   // Consider connected if at least one service is available
   const isLoading = translatorLoading && jdcLoading;
   const isSuccess = Boolean(translatorOk || jdcOk);
   const isError = !isLoading && !isSuccess;
   
+  // Last updated timestamp from whichever health check responded most recently
+  const lastUpdatedAt = Math.max(translatorUpdatedAt || 0, jdcUpdatedAt || 0);
+
   const features = getAppFeatures(appMode);
 
   const navItems = getNavItems(features, appMode);
@@ -140,15 +155,7 @@ export function Shell({
             })}
           </nav>
 
-          {/* Footer */}
-          <div className="border-t border-border p-4">
-            <div className="px-2">
-              <ConnectionStatus
-                state={getConnectionState(isLoading, isError, isSuccess)}
-                label={isSuccess ? 'API Connected' : undefined}
-              />
-            </div>
-          </div>
+          <div className="border-t border-border" />
         </div>
       </aside>
 
@@ -163,6 +170,18 @@ export function Shell({
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex-1" />
+          <div className="flex items-center gap-4">
+            <ConnectionStatus
+              state={getConnectionState(isLoading, isError)}
+              label={isSuccess ? 'Connected' : undefined}
+            />
+            {lastUpdatedAt > 0 && (
+              <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
+                Last check {formatShortTime(lastUpdatedAt)}
+              </span>
+            )}
+          </div>
+          <div className="ml-4">
           <button
             onClick={toggle}
             className="relative w-10 h-10 flex items-center justify-center rounded-full border border-border bg-background/50 cursor-pointer text-foreground opacity-70 hover:opacity-100 transition-all duration-200"
@@ -174,7 +193,20 @@ export function Shell({
               <Moon className="h-4 w-4" />
             )}
           </button>
+          </div>
         </div>
+
+        {/* Connection Error Banner */}
+        {isError && (
+          <div className="px-6 md:px-8 py-3 bg-red-500/10 border-b border-red-500/30 text-sm text-red-400 text-center shrink-0">
+            Failed to connect. Make sure Translator (and optionally JDC) are running.
+          </div>
+        )}
+        {isLoading && (
+          <div className="px-6 md:px-8 py-3 bg-muted/50 border-b border-border text-sm text-muted-foreground text-center shrink-0">
+            Connecting to monitoring API...
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-5 md:p-6">

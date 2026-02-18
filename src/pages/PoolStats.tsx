@@ -18,8 +18,7 @@ export function PoolStats() {
     isJdMode, 
     global: poolGlobal, 
     channels: poolChannels,
-    isLoading, 
-    isError 
+    isLoading,
   } = usePoolData();
   const { config } = useUiConfig();
 
@@ -78,55 +77,39 @@ export function PoolStats() {
           </p>
         </div>
 
-        {isLoading && (
-          <div className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">
-            Loading pool statistics...
-          </div>
-        )}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <StatCard
+            title="Shares"
+            value={`${stats.sharesAccepted.toLocaleString()} / ${stats.sharesSubmitted.toLocaleString()}`}
+            subtitle={`${acceptanceRate}% accepted`}
+          />
+          <StatCard
+            title="Best Diff"
+            value={formatDifficulty(stats.bestDiff)}
+          />
+          <StatCard
+            title="Work Sum"
+            value={stats.shareWorkSum.toLocaleString()}
+          />
+          <StatCard
+            title="Hashrate"
+            value={formatHashrate(poolGlobal?.server.total_hashrate || 0)}
+          />
+          <StatCard
+            title="Channels"
+            value={`${stats.extendedCount} ext / ${stats.standardCount} std`}
+          />
+          <StatCard
+            title="Uptime"
+            value={formatUptime(poolGlobal?.uptime_secs || 0)}
+          />
+        </div>
 
-        {isError && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-center text-sm text-red-400">
-            Failed to connect. Make sure {modeLabel} is running.
-          </div>
-        )}
-
-        {!isLoading && !isError && (
-          <>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              <StatCard
-                title="Shares"
-                value={`${stats.sharesAccepted.toLocaleString()} / ${stats.sharesSubmitted.toLocaleString()}`}
-                subtitle={`${acceptanceRate}% accepted`}
-              />
-              <StatCard
-                title="Best Diff"
-                value={formatDifficulty(stats.bestDiff)}
-              />
-              <StatCard
-                title="Work Sum"
-                value={stats.shareWorkSum.toLocaleString()}
-              />
-              <StatCard
-                title="Hashrate"
-                value={formatHashrate(poolGlobal?.server.total_hashrate || 0)}
-              />
-              <StatCard
-                title="Channels"
-                value={`${stats.extendedCount} ext / ${stats.standardCount} std`}
-              />
-              <StatCard
-                title="Uptime"
-                value={formatUptime(poolGlobal?.uptime_secs || 0)}
-              />
-            </div>
-
-            <UpstreamChannelTable
-              extendedChannels={poolChannels?.extended_channels || []}
-              standardChannels={poolChannels?.standard_channels || []}
-              isLoading={isLoading}
-            />
-          </>
-        )}
+        <UpstreamChannelTable
+          extendedChannels={poolChannels?.extended_channels || []}
+          standardChannels={poolChannels?.standard_channels || []}
+          isLoading={isLoading}
+        />
       </div>
     </Shell>
   );

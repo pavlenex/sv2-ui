@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-type ConnectionState = 'connected' | 'connecting' | 'disconnected' | 'error';
+type ConnectionState = 'connected' | 'connecting' | 'error';
 
 interface ConnectionStatusProps {
   state: ConnectionState;
@@ -8,35 +8,50 @@ interface ConnectionStatusProps {
   className?: string;
 }
 
+const stateConfig: Record<
+  ConnectionState,
+  { dot: string; badge: string; defaultLabel: string }
+> = {
+  connected: {
+    dot: 'bg-emerald-500',
+    badge: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20',
+    defaultLabel: 'Connected',
+  },
+  connecting: {
+    dot: 'bg-amber-500',
+    badge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20 animate-pulse',
+    defaultLabel: 'Connecting',
+  },
+  error: {
+    dot: 'bg-red-500',
+    badge: 'bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/20 animate-pulse',
+    defaultLabel: 'Reconnecting',
+  },
+};
+
 /**
- * A visual indicator for connection status.
- * Shows a colored dot with optional label.
+ * Connection status badge.
  */
 export function ConnectionStatus({
   state,
   label,
   className,
 }: ConnectionStatusProps) {
-  const stateConfig: Record<ConnectionState, { color: string; text: string }> = {
-    connected: { color: 'bg-cyan-400 shadow-[0_0_8px_hsl(187,92%,60%,0.4)]', text: 'Connected' },
-    connecting: { color: 'bg-yellow-500 animate-pulse', text: 'Connecting' },
-    disconnected: { color: 'bg-muted-foreground', text: 'Disconnected' },
-    error: { color: 'bg-red-500', text: 'Error' },
-  };
-
   const config = stateConfig[state];
 
   return (
-    <div className={cn('flex items-center gap-2', className)}>
-      <div
-        className={cn(
-          'h-2 w-2 rounded-full shadow-sm',
-          config.color
-        )}
+    <div
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors',
+        config.badge,
+        className,
+      )}
+    >
+      <span
+        className={cn('h-1.5 w-1.5 rounded-full', config.dot)}
+        aria-hidden="true"
       />
-      <span className="text-sm text-muted-foreground">
-        {label || config.text}
-      </span>
+      {label || config.defaultLabel}
     </div>
   );
 }
@@ -47,10 +62,8 @@ export function ConnectionStatus({
 export function getConnectionState(
   isLoading: boolean,
   isError: boolean,
-  isSuccess: boolean
 ): ConnectionState {
   if (isLoading) return 'connecting';
   if (isError) return 'error';
-  if (isSuccess) return 'connected';
-  return 'disconnected';
+  return 'connected';
 }
