@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ConnectionStatus, getConnectionState } from '@/components/data/ConnectionStatus';
 import { useTranslatorHealth, useJdcHealth } from '@/hooks/usePoolData';
+import { useUiConfig } from '@/hooks/useUiConfig';
 import type { AppMode, AppFeatures } from '@/types/api';
 import { getAppFeatures } from '@/types/api';
 
@@ -53,7 +54,6 @@ function useTheme() {
 interface ShellProps {
   children: React.ReactNode;
   appMode?: AppMode;
-  appName?: string;
 }
 
 /**
@@ -67,6 +67,7 @@ export function Shell({
   const [location] = useLocation();
   const { isDark, toggle } = useTheme();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const { config } = useUiConfig();
   
   // Check health of both services
   const { data: translatorOk, isLoading: translatorLoading, dataUpdatedAt: translatorUpdatedAt } = useTranslatorHealth();
@@ -106,15 +107,23 @@ export function Shell({
           {/* Logo Area */}
           <div className="flex h-14 items-center px-6 border-b border-border">
             <Link href="/">
-              <img
-                src="/sv2-logo-240x40.png"
-                srcSet="/sv2-logo-240x40.png 1x, /sv2-logo-480x80.png 2x"
-                alt="Stratum V2"
-                width="140"
-                height="23"
-                className="h-[23px] w-auto cursor-pointer"
-                style={isDark ? undefined : { filter: 'brightness(0.3)' }}
-              />
+              {config.customLogo ? (
+                <img
+                  src={config.customLogo}
+                  alt="Logo"
+                  className="h-[23px] w-auto max-w-[160px] object-contain cursor-pointer"
+                />
+              ) : (
+                <img
+                  src="/sv2-logo-240x40.png"
+                  srcSet="/sv2-logo-240x40.png 1x, /sv2-logo-480x80.png 2x"
+                  alt="Stratum V2"
+                  width="140"
+                  height="23"
+                  className="h-[23px] w-auto cursor-pointer"
+                  style={isDark ? undefined : { filter: 'brightness(0.3)' }}
+                />
+              )}
             </Link>
             <button
               className="md:hidden ml-auto p-1 hover:bg-muted/50 rounded"

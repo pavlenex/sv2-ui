@@ -4,7 +4,7 @@ import { StatCard } from '@/components/data/StatCard';
 import { UpstreamChannelTable } from '@/components/data/UpstreamChannelTable';
 import { usePoolData } from '@/hooks/usePoolData';
 import { formatHashrate, formatDifficulty, formatUptime } from '@/lib/utils';
-import { useUiConfig } from '@/hooks/useUiConfig';
+
 
 /**
  * Pool Statistics page.
@@ -20,7 +20,6 @@ export function PoolStats() {
     channels: poolChannels,
     isLoading,
   } = usePoolData();
-  const { config } = useUiConfig();
 
   // Calculate stats from channels
   const stats = useMemo(() => {
@@ -68,7 +67,7 @@ export function PoolStats() {
     : '100.00';
 
   return (
-    <Shell appMode="translator" appName={config.appName}>
+    <Shell appMode="translator">
       <div className="space-y-6">
         <div>
           <h2 className="text-xl font-semibold">Pool Statistics</h2>

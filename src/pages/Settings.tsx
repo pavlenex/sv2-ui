@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,8 +11,35 @@ import type { AppMode } from '@/types/api';
 import {
   ExternalLink,
   Copy,
+  Upload,
+  X,
+  Check,
 } from 'lucide-react';
 import { useUiConfig } from '@/hooks/useUiConfig';
+
+/**
+ * Transient "Saved" indicator that appears briefly after each config change,
+ * then fades out. Skips the initial mount to avoid flashing on page load.
+ */
+function useSaveIndicator(config: unknown) {
+  const [visible, setVisible] = useState(false);
+  const mountedRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    // Skip the very first render (page load / initial config hydration)
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    setVisible(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setVisible(false), 2500);
+    return () => clearTimeout(timerRef.current);
+  }, [config]);
+
+  return visible;
+}
 
 interface SettingsProps {
   appMode?: AppMode;
@@ -27,13 +55,14 @@ export function Settings({ appMode = 'translator' }: SettingsProps) {
   const { data: jdcOk, isLoading: jdcLoading } = useJdcHealth();
   const endpoints = getEndpointConfig();
   const { config, updateConfig } = useUiConfig();
+  const showSaved = useSaveIndicator(config);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
 
   return (
-    <Shell appMode={appMode} appName={config.appName}>
+    <Shell appMode={appMode}>
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold">Settings</h2>
@@ -361,39 +390,127 @@ export function Settings({ appMode = 'translator' }: SettingsProps) {
             <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
               <Card className="">
                 <CardHeader>
-                  <CardTitle>Branding</CardTitle>
-                  <CardDescription>
-                    Customize the name shown in the sidebar and the secondary surface color.
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Branding</CardTitle>
+                      <CardDescription>
+                        Customize the sidebar logo and brand color.
+                      </CardDescription>
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-xs transition-opacity duration-300 ${
+                        showSaved
+                          ? 'opacity-100 text-emerald-600 dark:text-emerald-400'
+                          : 'opacity-0'
+                      }`}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Saved
+                    </span>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="app-name">App name</Label>
-                    <Input
-                      id="app-name"
-                      value={config.appName}
-                      onChange={(e) => updateConfig({ appName: e.target.value })}
-                      placeholder="SV2 Mining Stack"
-                      className="max-w-md"
-                    />
+                  {/* Logo Upload */}
+                  <div className="space-y-3">
+                    <Label>Sidebar logo</Label>
+                    {config.customLogo ? (
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center justify-center h-12 px-4 rounded-lg border border-border bg-foreground/[0.02]">
+                          <img
+                            src={config.customLogo}
+                            alt="Custom logo"
+                            className="h-6 max-w-[160px] object-contain"
+                          />
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateConfig({ customLogo: undefined })}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <div>
+                        <label
+                          htmlFor="logo-upload"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-dashed border-border hover:border-foreground/20 hover:bg-foreground/[0.02] cursor-pointer transition-colors text-sm text-muted-foreground"
+                        >
+                          <Upload className="h-4 w-4" />
+                          Upload logo
+                        </label>
+                        <input
+                          id="logo-upload"
+                          type="file"
+                          accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 512 * 1024) {
+                              alert('Logo must be under 512 KB');
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              updateConfig({ customLogo: reader.result as string });
+                            };
+                            reader.readAsDataURL(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      This text appears in the sidebar header instead of the default name.
+                      PNG, SVG, or JPEG. Max 512 KB. Replaces the default SV2 logo in the sidebar.
                     </p>
                   </div>
 
+                  {/* Brand Color */}
                   <div className="space-y-2">
-                    <Label htmlFor="secondary-color">Secondary color</Label>
-                    <Input
-                      id="secondary-color"
-                      type="color"
-                      value={hslToHex(config.secondary)}
-                      onChange={(e) => updateConfig({ secondary: hexToHslTriplet(e.target.value) })}
-                      className="w-24 h-10 p-1 cursor-pointer"
-                    />
+                    <Label htmlFor="brand-color">Brand color</Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        id="brand-color"
+                        type="color"
+                        value={config.secondary ? hslToHex(config.secondary) : '#f5f5f5'}
+                        onChange={(e) => updateConfig({ secondary: hexToHslTriplet(e.target.value) })}
+                        className="w-10 h-10 rounded-lg border border-border p-0.5 cursor-pointer"
+                      />
+                      {config.secondary && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateConfig({ secondary: undefined })}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Remove
+                        </Button>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      Controls the secondary surfaces (e.g. subtle backgrounds). Applies to both light and dark themes.
+                      {config.secondary
+                        ? 'Replaces the default cyan accent across the UI. Remove to restore the default.'
+                        : 'Replaces the default cyan accent across the UI.'}
                     </p>
                   </div>
+
+                  {/* Reset All */}
+                  {(config.customLogo || config.secondary) && (
+                    <div className="pt-4 border-t border-border/40">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateConfig({ customLogo: undefined, secondary: undefined })}
+                        className="text-muted-foreground"
+                      >
+                        Reset all to defaults
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
