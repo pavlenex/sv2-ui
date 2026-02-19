@@ -7,7 +7,6 @@ import {
   Moon,
   Menu,
   X,
-  Pickaxe,
   BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -91,13 +90,18 @@ export function Shell({
       >
         <div className="flex h-full flex-col">
           {/* Logo Area */}
-          <div className="flex h-16 items-center px-6 border-b border-sidebar-border/50">
-            <div className="bg-foreground/5 p-1.5 rounded-lg mr-3">
-              <Pickaxe className="h-4 w-4 text-foreground" />
-            </div>
-            <span className="text-sm font-semibold tracking-wide text-foreground uppercase">
-              {appName}
-            </span>
+          <div className="flex h-14 items-center px-6 border-b border-sidebar-border">
+            <Link href="/">
+              <img
+                src="/sv2-logo-240x40.png"
+                srcSet="/sv2-logo-240x40.png 1x, /sv2-logo-480x80.png 2x"
+                alt="Stratum V2"
+                width="140"
+                height="23"
+                className="h-[23px] w-auto cursor-pointer"
+                style={isDark ? undefined : { filter: 'brightness(0.3)' }}
+              />
+            </Link>
             <button
               className="md:hidden ml-auto p-1 hover:bg-muted/50 rounded"
               onClick={() => setIsMobileOpen(false)}
@@ -116,17 +120,17 @@ export function Shell({
                 <Link key={item.href} href={item.href}>
                   <div
                     className={cn(
-                      'group flex items-center rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 mb-1 cursor-pointer',
+                      'group flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 mb-1 cursor-pointer',
                       isActive
-                        ? 'bg-sidebar-accent text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
+                        ? 'bg-primary/10 text-primary shadow-sm'
+                        : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
                     )}
                   >
                     <item.icon
                       className={cn(
                         'mr-3 h-4 w-4 transition-colors',
                         isActive
-                          ? 'text-foreground'
+                          ? 'text-primary'
                           : 'text-muted-foreground group-hover:text-foreground'
                       )}
                     />
@@ -137,29 +141,7 @@ export function Shell({
             })}
           </nav>
 
-          {/* Footer */}
-          <div className="border-t border-sidebar-border/50 p-4 space-y-3">
-            {/* Connection Status */}
-            <div className="px-2">
-              <ConnectionStatus
-                state={getConnectionState(isLoading, isError, isSuccess)}
-                label={isSuccess ? 'API Connected' : undefined}
-              />
-            </div>
-
-            {/* Theme Toggle */}
-            <button
-              onClick={toggle}
-              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-foreground/5 rounded-md transition-colors"
-            >
-              {isDark ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-              {isDark ? 'Light Mode' : 'Dark Mode'}
-            </button>
-          </div>
+          <div className="border-t border-border" />
         </div>
       </aside>
 
