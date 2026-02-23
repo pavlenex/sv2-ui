@@ -83,11 +83,6 @@ export function Settings({ appMode = 'translator' }: SettingsProps) {
               View connection status, endpoints, and API documentation.
             </p>
           </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={() => window.location.reload()}>
-              Refresh Status
-            </Button>
-          </div>
         </div>
 
         <Tabs defaultValue="status" className="space-y-6">
