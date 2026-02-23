@@ -87,7 +87,7 @@ export function UnifiedDashboard() {
 
   // Sum nominal hashrates from downstream client channels (JD mode fallback)
   const clientChannelHashrate = useMemo(() => {
-    if (!clientChannels) return 0;
+    if (!clientChannels) return undefined;
     const ext = clientChannels.extended_channels.reduce((sum, ch) => sum + (ch.nominal_hashrate || 0), 0);
     const std = clientChannels.standard_channels.reduce((sum, ch) => sum + (ch.nominal_hashrate || 0), 0);
     return ext + std;
@@ -96,9 +96,15 @@ export function UnifiedDashboard() {
   // Total hashrate, with multiple fallback sources:
   // - JD mode: sv2_clients summary → client channel nominal hashrates
   // - Translator-only mode: sv1_clients summary → individual client sum → server reported total
+  // Use nullish coalescing so an explicit 0 hashrate is preserved.
   const totalHashrate = isJdMode
-    ? (poolGlobal?.sv2_clients?.total_hashrate || clientChannelHashrate)
-    : (poolGlobal?.sv1_clients?.total_hashrate || sv1TotalHashrate || poolGlobal?.server?.total_hashrate || 0);
+    ? (poolGlobal?.sv2_clients?.total_hashrate ?? clientChannelHashrate ?? 0)
+    : (
+      poolGlobal?.sv1_clients?.total_hashrate
+      ?? (sv1Data ? sv1TotalHashrate : undefined)
+      ?? poolGlobal?.server?.total_hashrate
+      ?? 0
+    );
 
   const totalClientChannels = isJdMode 
     ? (poolGlobal?.sv2_clients?.total_channels || 0)
