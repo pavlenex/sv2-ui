@@ -86,12 +86,20 @@ export function UnifiedDashboard() {
     return allClients.reduce((sum, c) => sum + (c.hashrate || 0), 0);
   }, [allClients]);
 
-  // Total hashrate:
-  // - JD mode: from SV2 client channels (poolGlobal.sv2_clients.total_hashrate)
-  // - Translator-only mode: from SV1 clients (poolGlobal.sv1_clients.total_hashrate or calculated)
-  const totalHashrate = isJdMode 
-    ? (poolGlobal?.sv2_clients?.total_hashrate || 0)
-    : (poolGlobal?.sv1_clients?.total_hashrate || sv1TotalHashrate);
+  // Sum nominal hashrates from downstream client channels (JD mode fallback)
+  const clientChannelHashrate = useMemo(() => {
+    if (!clientChannels) return 0;
+    const ext = clientChannels.extended_channels.reduce((sum, ch) => sum + (ch.nominal_hashrate || 0), 0);
+    const std = clientChannels.standard_channels.reduce((sum, ch) => sum + (ch.nominal_hashrate || 0), 0);
+    return ext + std;
+  }, [clientChannels]);
+
+  // Total hashrate, with multiple fallback sources:
+  // - JD mode: sv2_clients summary → client channel nominal hashrates
+  // - Translator-only mode: sv1_clients summary → individual client sum → server reported total
+  const totalHashrate = isJdMode
+    ? (poolGlobal?.sv2_clients?.total_hashrate || clientChannelHashrate)
+    : (poolGlobal?.sv1_clients?.total_hashrate || sv1TotalHashrate || poolGlobal?.server?.total_hashrate || 0);
 
   const totalClientChannels = isJdMode 
     ? (poolGlobal?.sv2_clients?.total_channels || 0)
