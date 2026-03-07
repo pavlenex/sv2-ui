@@ -76,8 +76,8 @@ export function UnifiedDashboard() {
   const showError = poolError || translatorDown || jdcDown;
 
   // SV1 client stats (from Translator)
-  const allClients = sv1Data?.items || [];
-  const activeClients = allClients.filter((c: Sv1ClientInfo) => c.hashrate !== null);
+  const allClients = useMemo(() => sv1Data?.items || [], [sv1Data?.items]);
+  const activeClients = useMemo(() => allClients.filter((c: Sv1ClientInfo) => c.hashrate !== null), [allClients]);
   const totalClients = sv1Data?.total || 0;
   const activeCount = activeClients.length;
 

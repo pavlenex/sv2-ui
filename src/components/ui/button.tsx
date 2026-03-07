@@ -28,10 +28,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     // If asChild is true, render the child element with button styles
     if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, {
-        className: cn(classes, (children as React.ReactElement<any>).props.className),
+      const childElement = children as React.ReactElement<{ className?: string; ref?: React.Ref<HTMLButtonElement> }>;
+      return React.cloneElement(childElement, {
+        className: cn(classes, childElement.props.className),
         ref,
-      });
+      } as Partial<{ className?: string; ref?: React.Ref<HTMLButtonElement> }>);
     }
 
     return (

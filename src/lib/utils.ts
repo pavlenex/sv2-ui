@@ -11,8 +11,8 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Formats hashrate with appropriate unit (H/s, KH/s, MH/s, GH/s, TH/s, PH/s, EH/s).
  */
-export function formatHashrate(hashrate: number): string {
-  if (hashrate === 0) return '0 H/s';
+export function formatHashrate(hashrate: number | null): string {
+  if (hashrate === null || hashrate === 0) return '0 H/s';
   
   const units = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s', 'EH/s'];
   const k = 1000;
