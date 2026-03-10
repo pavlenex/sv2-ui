@@ -2,11 +2,10 @@
  * Docker orchestration using Dockerode
  */
 
+import fs from 'fs';
 import Docker from 'dockerode';
 import os from 'os';
 import type { SetupData, ContainerStatus, HealthStatus } from './types.js';
-
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
 /**
  * Expand ~ to home directory in a path
@@ -18,11 +17,136 @@ function expandHomePath(inputPath: string): string {
   return inputPath;
 }
 
+const DEFAULT_DOCKER_SOCKET = '/var/run/docker.sock';
+const KNOWN_DOCKER_SOCKET_PATHS = [
+  DEFAULT_DOCKER_SOCKET,
+  '~/.docker/run/docker.sock',
+  '~/Library/Containers/com.docker.docker/Data/docker-cli.sock',
+  '~/.colima/default/docker.sock',
+  '~/.orbstack/run/docker.sock',
+];
+
+type DockerConnectionConfig = {
+  endpoint: string;
+  options: Docker.DockerOptions;
+  source: string;
+};
+
+function listAvailableDockerSockets(): string[] {
+  return KNOWN_DOCKER_SOCKET_PATHS
+    .map(expandHomePath)
+    .filter((socketPath, index, paths) => paths.indexOf(socketPath) === index && fs.existsSync(socketPath));
+}
+
+function parseDockerHost(dockerHost: string): DockerConnectionConfig {
+  if (dockerHost.startsWith('unix://')) {
+    const socketPath = decodeURIComponent(dockerHost.slice('unix://'.length));
+    return {
+      endpoint: socketPath,
+      options: { socketPath },
+      source: `DOCKER_HOST=${dockerHost}`,
+    };
+  }
+
+  const url = new URL(dockerHost);
+  const protocol = url.protocol === 'tcp:' ? 'http' : url.protocol.replace(':', '');
+
+  if (protocol !== 'http' && protocol !== 'https' && protocol !== 'ssh') {
+    throw new Error(`Unsupported DOCKER_HOST protocol: ${url.protocol}`);
+  }
+
+  const defaultPort = protocol === 'https' ? 2376 : 2375;
+
+  return {
+    endpoint: dockerHost,
+    options: {
+      host: url.hostname,
+      port: url.port ? Number(url.port) : defaultPort,
+      protocol,
+    },
+    source: `DOCKER_HOST=${dockerHost}`,
+  };
+}
+
+function resolveDockerConnection(): DockerConnectionConfig {
+  const configuredSocketPath = process.env.DOCKER_SOCKET_PATH?.trim();
+  if (configuredSocketPath) {
+    const socketPath = expandHomePath(configuredSocketPath);
+    return {
+      endpoint: socketPath,
+      options: { socketPath },
+      source: `DOCKER_SOCKET_PATH=${configuredSocketPath}`,
+    };
+  }
+
+  const dockerHost = process.env.DOCKER_HOST?.trim();
+  if (dockerHost) {
+    return parseDockerHost(dockerHost);
+  }
+
+  const detectedSocket = listAvailableDockerSockets()[0];
+  if (detectedSocket) {
+    return {
+      endpoint: detectedSocket,
+      options: { socketPath: detectedSocket },
+      source: 'auto-detected local socket',
+    };
+  }
+
+  return {
+    endpoint: DEFAULT_DOCKER_SOCKET,
+    options: { socketPath: DEFAULT_DOCKER_SOCKET },
+    source: 'default socket fallback',
+  };
+}
+
+function normalizeDockerError(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error(String(error));
+  }
+
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code !== 'ENOENT' && code !== 'ECONNREFUSED' && code !== 'EACCES' && code !== 'EPERM') {
+    return error;
+  }
+
+  const availableSockets = listAvailableDockerSockets();
+  const socketSummary = availableSockets.length > 0
+    ? `Detected local Docker sockets: ${availableSockets.join(', ')}.`
+    : 'No known local Docker socket paths were found.';
+
+  return new Error(
+    `Docker is not reachable via ${dockerConnection.endpoint} (${dockerConnection.source}). ${socketSummary} ` +
+    'Start Docker Desktop or Docker Engine, or set DOCKER_SOCKET_PATH/DOCKER_HOST to a reachable endpoint.'
+  );
+}
+
+let dockerConnection = resolveDockerConnection();
+let docker = new Docker(dockerConnection.options);
+
+function refreshDockerConnection(): void {
+  const nextConnection = resolveDockerConnection();
+  if (
+    nextConnection.endpoint === dockerConnection.endpoint &&
+    nextConnection.source === dockerConnection.source
+  ) {
+    return;
+  }
+
+  dockerConnection = nextConnection;
+  docker = new Docker(dockerConnection.options);
+}
+
 const NETWORK_NAME = 'sv2-network';
 const TRANSLATOR_CONTAINER = 'sv2-translator';
 const JDC_CONTAINER = 'sv2-jdc';
 const TRANSLATOR_IMAGE = 'stratumv2/translator_sv2:main';
 const JDC_IMAGE = 'stratumv2/jd_client_sv2:main';
+
+export function getDockerConnectionInfo(): DockerConnectionConfig {
+  refreshDockerConnection();
+  return dockerConnection;
+}
 
 /**
  * Ensure the sv2 network exists
@@ -179,6 +303,8 @@ export async function startStack(
   data: SetupData,
   configDir: string
 ): Promise<void> {
+  await ensureDockerAvailable();
+
   // Ensure network exists
   await ensureNetwork();
 
@@ -205,6 +331,8 @@ export async function startStack(
  * Stop all containers
  */
 export async function stopStack(): Promise<void> {
+  await ensureDockerAvailable();
+
   // Stop Translator first (it depends on JDC)
   await removeContainer(TRANSLATOR_CONTAINER);
   await removeContainer(JDC_CONTAINER);
@@ -228,9 +356,19 @@ export async function getStackStatus(mode: 'jd' | 'no-jd' | null): Promise<{
  */
 export async function isDockerAvailable(): Promise<boolean> {
   try {
+    refreshDockerConnection();
     await docker.ping();
     return true;
   } catch {
     return false;
+  }
+}
+
+export async function ensureDockerAvailable(): Promise<void> {
+  try {
+    refreshDockerConnection();
+    await docker.ping();
+  } catch (error) {
+    throw normalizeDockerError(error);
   }
 }

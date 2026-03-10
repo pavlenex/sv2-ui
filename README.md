@@ -8,11 +8,15 @@ A unified setup wizard and monitoring dashboard for Stratum V2 mining.
 # Install dependencies (includes server workspace)
 npm install
 
+# Make sure Docker Desktop / Docker Engine is running
+
 # Start frontend + backend
 npm run dev
 ```
 
 Then open **http://localhost:5173**. On first run, you'll be guided through the setup wizard.
+
+The backend auto-detects common local Docker sockets, including `/var/run/docker.sock` and `~/.docker/run/docker.sock`. To override detection, set `DOCKER_SOCKET_PATH` or `DOCKER_HOST` before starting the server.
 
 ## What It Does
 

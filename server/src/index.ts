@@ -12,7 +12,14 @@ import { fileURLToPath } from 'url';
 
 import type { SetupData, StatusResponse, SetupResponse } from './types.js';
 import { generateTranslatorConfig, generateJdcConfig } from './config-generator.js';
-import { startStack, stopStack, getStackStatus, isDockerAvailable } from './docker.js';
+import {
+  startStack,
+  stopStack,
+  getStackStatus,
+  isDockerAvailable,
+  ensureDockerAvailable,
+  getDockerConnectionInfo,
+} from './docker.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -126,6 +133,8 @@ app.post('/api/setup', async (req, res) => {
     if (data.mode === 'jd' && (!data.jdc || !data.bitcoin)) {
       return res.status(400).json({ success: false, error: 'JD mode requires JDC and Bitcoin configuration' });
     }
+
+    await ensureDockerAvailable();
 
     // Generate config files
     await fs.mkdir(CONFIG_DIR, { recursive: true });
@@ -255,4 +264,6 @@ app.get('*', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`sv2-ui server running on http://localhost:${PORT}`);
   console.log(`Config directory: ${CONFIG_DIR}`);
+  const dockerConnection = getDockerConnectionInfo();
+  console.log(`Docker endpoint: ${dockerConnection.endpoint} (${dockerConnection.source})`);
 });
