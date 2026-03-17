@@ -8,11 +8,14 @@ import os from 'os';
 import type { SetupData, ContainerStatus, HealthStatus } from './types.js';
 
 /**
- * Expand ~ to home directory in a path
+ * Expand ~ to home directory in a path.
+ * Uses HOST_HOME env var (passed from docker run) if available,
+ * otherwise falls back to os.homedir() (works in development).
  */
 function expandHomePath(inputPath: string): string {
   if (inputPath.startsWith('~')) {
-    return inputPath.replace('~', os.homedir());
+    const home = process.env.HOST_HOME || os.homedir();
+    return inputPath.replace('~', home);
   }
   return inputPath;
 }
