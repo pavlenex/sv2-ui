@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { StepProps, PoolConfig } from '../types';
-import { Check, Server } from 'lucide-react';
+import { Check } from 'lucide-react';
+import { PoolIcon } from '@/components/ui/pool-icon';
 
 interface KnownPool {
   id: string;
@@ -164,17 +165,7 @@ export function PoolConfigStep({ data, updateData, onNext }: StepProps) {
                 </div>
               )}
               <div className="flex items-start gap-4">
-                <div className={`p-2.5 rounded-xl flex items-center justify-center flex-shrink-0 ${pool.logoOnDark ? 'bg-zinc-800' : isSelected ? 'bg-primary/10' : 'bg-muted/50'}`} aria-hidden="true">
-                  {pool.logoUrl ? (
-                    <img
-                      src={pool.logoUrl}
-                      alt=""
-                      className="w-10 h-10 object-contain"
-                      onError={(e) => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden'); }}
-                    />
-                  ) : null}
-                  <Server className={`w-6 h-6 text-primary ${pool.logoUrl ? 'hidden' : ''}`} />
-                </div>
+                <PoolIcon logoUrl={pool.logoUrl} logoOnDark={pool.logoOnDark} name={pool.name} />
                 <div className="flex-1 min-w-0 pr-8">
                   <div className={`font-medium text-sm mb-1 ${isSelected ? 'text-primary' : ''}`}>{pool.name}</div>
                   <div className="text-xs text-muted-foreground leading-relaxed">{pool.description}</div>

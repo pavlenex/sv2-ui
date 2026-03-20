@@ -6,18 +6,20 @@ import { Badge } from '@/components/ui/badge';
 import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { useControlApi, getCurrentConfig } from '@/hooks/useControlApi';
 import type { SetupData } from '@/components/setup/types';
-import { 
-  Settings2, 
+import {
+  Settings2,
   Cpu,
   Zap,
-  Server, 
   Bitcoin,
   Loader2,
   AlertCircle,
   RotateCw,
   StopCircle,
   Trash2,
+  User,
+  Wallet,
 } from 'lucide-react';
+import { PoolIcon } from '@/components/ui/pool-icon';
 
 /**
  * Configuration tab for Settings page.
@@ -125,11 +127,11 @@ export function ConfigurationTab() {
   const isJdMode = mode === 'jd';
   const isSoloMode = miningMode === 'solo';
 
-  const getPoolIconUrl = (poolName: string): string | null => {
-    if (poolName.includes('Braiins')) return '/braiins.svg';
-    if (poolName.includes('SRI')) return '/favicon.png';
-    if (poolName.includes('Blitzpool')) return '/blitzpool.svg';
-    return null;
+  const getPoolInfo = (name: string): { url: string | null; logoOnDark: boolean } => {
+    if (name.includes('Braiins'))   return { url: '/braiins.svg',   logoOnDark: true  };
+    if (name.includes('SRI'))       return { url: '/sri-logo.png',  logoOnDark: false };
+    if (name.includes('Blitzpool')) return { url: '/blitzpool.svg', logoOnDark: false };
+    return { url: null, logoOnDark: false };
   };
 
   return (
@@ -230,11 +232,11 @@ export function ConfigurationTab() {
           {/* Mining Mode */}
           <div className="flex items-center justify-between p-4 rounded-lg border border-border/50 bg-muted/20">
             <div className="flex items-center gap-3">
-              {isSoloMode ? (
-                <Cpu className="h-5 w-5 text-orange-500" />
-              ) : (
-                <Zap className="h-5 w-5 text-blue-500" />
-              )}
+              <div className="w-9 h-9 rounded-xl bg-muted/40 flex items-center justify-center flex-shrink-0">
+                {isSoloMode
+                  ? <Cpu className="w-5 h-5 text-orange-500" />
+                  : <Zap className="w-5 h-5 text-blue-500" />}
+              </div>
               <div>
                 <p className="font-medium">Mining Mode</p>
                 <p className="text-sm text-muted-foreground">
@@ -249,67 +251,74 @@ export function ConfigurationTab() {
           </div>
 
           {/* Pool */}
-          {config.pool && (
-            <div className="p-4 rounded-lg border border-border/50 bg-muted/20 space-y-2">
+          {config.pool && (() => {
+            const poolInfo = getPoolInfo(config.pool!.name);
+            return (
+              <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
+                <div className="flex items-center gap-3">
+                  <PoolIcon logoUrl={poolInfo.url} logoOnDark={poolInfo.logoOnDark} name={config.pool!.name} />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">{config.pool!.name}</p>
+                    <p className="text-muted-foreground font-mono text-xs">
+                      {config.pool!.address}:{config.pool!.port}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Username */}
+          {(config.translator?.user_identity || config.jdc?.user_identity) && (
+            <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted/50 overflow-hidden">
-                  {getPoolIconUrl(config.pool.name) ? (
-                    <img
-                      src={getPoolIconUrl(config.pool.name)!}
-                      alt={`${config.pool.name} logo`}
-                      className="w-8 h-8 object-contain"
-                    />
-                  ) : (
-                    <Server className="h-5 w-5 text-muted-foreground" />
-                  )}
+                <div className="w-9 h-9 rounded-xl bg-muted/40 flex items-center justify-center flex-shrink-0">
+                  <User className="w-5 h-5 text-muted-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium">{config.pool.name}</p>
-                  <p className="text-muted-foreground font-mono text-xs">
-                    {config.pool.address}:{config.pool.port}
+                  <p className="font-medium">{isSoloMode ? 'Bitcoin Address' : 'Pool Username'}</p>
+                  <p className="font-mono text-xs text-muted-foreground truncate">
+                    {config.translator?.user_identity || config.jdc?.user_identity}
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Username */}
-          {(config.translator?.user_identity || config.jdc?.user_identity) && (
-            <div className="p-4 rounded-lg border border-border/50 bg-muted/20 space-y-2">
-              <div className="flex items-center gap-2">
-                <p className="font-medium">{isSoloMode ? 'Bitcoin Address' : 'Pool Username'}</p>
-              </div>
-              <p className="font-mono text-sm truncate">
-                {config.translator?.user_identity || config.jdc?.user_identity}
-              </p>
-            </div>
-          )}
-
           {/* Bitcoin Core (JD mode) */}
           {isJdMode && config.bitcoin && (
-            <div className="p-4 rounded-lg border border-border/50 bg-muted/20 space-y-2">
-              <div className="flex items-center gap-2">
-                <Bitcoin className="h-5 w-5 text-orange-500" />
-                <p className="font-medium">Bitcoin Core</p>
-              </div>
-              <div className="text-sm space-y-1">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">{config.bitcoin.network}</Badge>
+            <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-muted/40 flex items-center justify-center flex-shrink-0">
+                  <Bitcoin className="w-5 h-5 text-orange-500" />
                 </div>
-                <p className="text-muted-foreground font-mono text-xs truncate">
-                  {config.bitcoin.socket_path}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">Bitcoin Core</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Badge variant="outline" className="text-xs">{config.bitcoin.network}</Badge>
+                    <p className="text-muted-foreground font-mono text-xs truncate">
+                      {config.bitcoin.socket_path}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
           {/* Fallback Address (JD mode) */}
           {isJdMode && config.jdc?.coinbase_reward_address && (
-            <div className="p-4 rounded-lg border border-border/50 bg-muted/20 space-y-2">
-              <p className="font-medium">Fallback Address</p>
-              <p className="text-muted-foreground font-mono text-xs truncate">
-                {config.jdc.coinbase_reward_address}
-              </p>
+            <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-muted/40 flex items-center justify-center flex-shrink-0">
+                  <Wallet className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">Fallback Address</p>
+                  <p className="text-muted-foreground font-mono text-xs truncate">
+                    {config.jdc.coinbase_reward_address}
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
