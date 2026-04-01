@@ -33,7 +33,7 @@ export function UnifiedDashboard() {
   const itemsPerPage = 15;
 
   // Get configured template mode from setup status
-  const { isOrchestrated, isConfigured, isRunning, mode: templateMode } = useSetupStatus();
+  const { isOrchestrated, isConfigured, isRunning, mode: templateMode, poolName: configPoolName } = useSetupStatus();
 
   // Header connection status (shared with Settings via hook)
   const { status: connectionStatus, poolName, uptime } = useConnectionStatus();
@@ -103,8 +103,14 @@ export function UnifiedDashboard() {
     ? (poolGlobal?.sv2_clients?.total_channels || 0)
     : activeCount;
 
+  // Scope hashrate history to the active pool + mode so stale samples from a
+  // previous configuration are never shown after a reconfigure.
+  // Falls back to 'default' while setup status is still loading or in
+  // standalone mode (no orchestration backend).
+  const historyConfigKey = [templateMode, configPoolName].filter(Boolean).join(':') || 'default';
+
   // Build hashrate history from real-time data
-  const hashrateHistory = useHashrateHistory(totalHashrate);
+  const hashrateHistory = useHashrateHistory(totalHashrate, historyConfigKey);
 
   // Shares data from upstream SERVER channels (shares sent TO the Pool)
   const shareStats = useMemo(() => {
@@ -311,7 +317,7 @@ export function UnifiedDashboard() {
       <HashrateChart
         data={hashrateHistory}
         title="Hashrate History"
-        description="Real-time data collected since page load"
+        description="Real-time data sampled every 5 seconds"
         info={
           <InfoPopover>
             Estimated hashrate sampled every 5 seconds. May take a few minutes to reflect your miner's actual output.
