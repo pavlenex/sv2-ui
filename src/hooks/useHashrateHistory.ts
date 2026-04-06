@@ -6,7 +6,7 @@ export interface HashrateDataPoint {
   hashrate: number;
 }
 
-const MAX_HISTORY_POINTS = 60; // Keep last 60 data points
+const MAX_HISTORY_POINTS = 720; // Keep up to 1 hour of data (at 5-second intervals)
 const SAMPLE_INTERVAL_MS = 5000; // Sample every 5 seconds
 
 function storageKeyFor(configKey: string): string {

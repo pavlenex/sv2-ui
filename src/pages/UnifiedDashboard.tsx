@@ -4,7 +4,7 @@ import { InfoPopover } from '@/components/ui/info-popover';
 import { MinerConnectionInfo } from '@/components/setup/MinerConnectionInfo';
 import { Shell } from '@/components/layout/Shell';
 import { StatCard } from '@/components/data/StatCard';
-import { HashrateChart } from '@/components/data/HashrateChart';
+import { HashrateChart, type TimeRange } from '@/components/data/HashrateChart';
 import {
   DownstreamWorkerTable,
   type ChannelType,
@@ -23,6 +23,13 @@ import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { formatHashrate, formatDifficulty } from '@/lib/utils';
 import type { Sv1ClientInfo } from '@/types/api';
+
+const RANGE_MS: Record<TimeRange, number> = { '5m': 5 * 60_000, '15m': 15 * 60_000, '1h': 60 * 60_000 };
+const RANGE_DESCRIPTIONS: Record<TimeRange, string> = {
+  '5m': 'Last 5 minutes · sampled every 5 seconds',
+  '15m': 'Last 15 minutes · sampled every 5 seconds',
+  '1h': 'Last hour · sampled every 5 seconds',
+};
 
 function normalizeUserIdentity(userIdentity: string) {
   return userIdentity.trim().toLowerCase();
@@ -51,6 +58,7 @@ export function UnifiedDashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortKey, setSortKey] = useState<DownstreamWorkerSortKey>('connection_id');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [timeRange, setTimeRange] = useState<TimeRange>('5m');
   const itemsPerPage = 15;
 
   // Get configured template mode from setup status
@@ -224,6 +232,12 @@ export function UnifiedDashboard() {
   // a false zero into persisted history on page refresh (see issue #57).
   const hashrateForHistory = poolGlobal ? totalHashrate : undefined;
   const hashrateHistory = useHashrateHistory(hashrateForHistory, historyConfigKey);
+
+  // Filter history to the selected time range for chart display
+  const filteredHistory = useMemo(() => {
+    const cutoff = Date.now() - RANGE_MS[timeRange];
+    return hashrateHistory.filter(p => p.timestamp > cutoff);
+  }, [hashrateHistory, timeRange]);
 
   // Shares data from upstream SERVER channels (shares sent TO the Pool)
   const shareStats = useMemo(() => {
@@ -476,9 +490,11 @@ export function UnifiedDashboard() {
 
       {/* Main Chart - Real data accumulated over time */}
       <HashrateChart
-        data={hashrateHistory}
+        data={filteredHistory}
         title="Hashrate History"
-        description="Real-time data sampled every 5 seconds"
+        description={RANGE_DESCRIPTIONS[timeRange]}
+        timeRange={timeRange}
+        onTimeRangeChange={setTimeRange}
         info={
           <InfoPopover>
             Estimated hashrate sampled every 5 seconds. May take a few minutes to reflect your miner's actual output.

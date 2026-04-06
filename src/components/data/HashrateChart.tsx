@@ -11,11 +11,15 @@ import {
 } from 'recharts';
 import { formatHashrate } from '@/lib/utils';
 
+export type TimeRange = '5m' | '15m' | '1h';
+
 interface HashrateChartProps {
   data: { time: string; hashrate: number }[];
   title?: string;
   description?: string;
   info?: ReactNode;
+  timeRange?: TimeRange;
+  onTimeRangeChange?: (range: TimeRange) => void;
 }
 
 /**
@@ -79,21 +83,51 @@ function formatHashrateAxis(value: number): string {
  * Hashrate history chart component.
  * Displays real accumulated data - no mock data.
  */
+const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
+  { value: '5m', label: '5 min' },
+  { value: '15m', label: '15 min' },
+  { value: '1h', label: '1 hr' },
+];
+
 export function HashrateChart({
   data,
   title = 'Hashrate History',
   description,
   info,
+  timeRange,
+  onTimeRangeChange,
 }: HashrateChartProps) {
+  const rangeSelector = timeRange && onTimeRangeChange ? (
+    <div className="inline-flex items-center rounded-md bg-muted p-0.5 text-xs">
+      {TIME_RANGE_OPTIONS.map(({ value, label }) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => onTimeRangeChange(value)}
+          className={`px-2.5 py-1 rounded-sm font-medium transition-all ${
+            timeRange === value
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   // Don't render chart if no data
   if (!data || data.length === 0) {
     return (
       <Card className="glass-card border-none shadow-sm bg-card/40">
         <CardHeader>
-          <CardTitle className="text-base font-normal text-muted-foreground flex items-center gap-1.5">
-            {title}
-            {info}
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-normal text-muted-foreground flex items-center gap-1.5">
+              {title}
+              {info}
+            </CardTitle>
+            {rangeSelector}
+          </div>
           {description && <CardDescription>{description}</CardDescription>}
         </CardHeader>
         <CardContent>
@@ -110,10 +144,13 @@ export function HashrateChart({
   return (
     <Card className="glass-card border-none shadow-sm bg-card/40">
       <CardHeader>
-        <CardTitle className="text-base font-normal text-muted-foreground flex items-center gap-1.5">
-          {title}
-          {info}
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-normal text-muted-foreground flex items-center gap-1.5">
+            {title}
+            {info}
+          </CardTitle>
+          {rangeSelector}
+        </div>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
       {/* pr-4 keeps the right edge of the chart flush with the card padding */}
