@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Search, Play } from 'lucide-react';
 import { InfoPopover } from '@/components/ui/info-popover';
 import { MinerConnectionInfo } from '@/components/setup/MinerConnectionInfo';
+import { AddMinerButton } from '@/components/scan/AddMinerButton';
+import { AddMinerTile } from '@/components/scan/AddMinerTile';
+import { ScanNetworkDialog } from '@/components/scan/ScanNetworkDialog';
 import { Shell } from '@/components/layout/Shell';
 import { StatCard } from '@/components/data/StatCard';
 import { HashrateChart, type TimeRange } from '@/components/data/HashrateChart';
@@ -65,6 +68,7 @@ export function UnifiedDashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortKey, setSortKey] = useState<DownstreamWorkerSortKey>('connection_id');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [addMinerOpen, setAddMinerOpen] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>('5m');
   const itemsPerPage = 15;
 
@@ -594,7 +598,10 @@ export function UnifiedDashboard() {
       {/* Miner Connection Info */}
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-widest mb-3">Point your miners to</h2>
-        <MinerConnectionInfo isJdMode={isJdMode} />
+        <MinerConnectionInfo
+          isJdMode={isJdMode}
+          trailingTile={<AddMinerTile onClick={() => setAddMinerOpen(true)} />}
+        />
       </div>
 
       {/* Main Chart - Real data accumulated over time */}
@@ -620,7 +627,7 @@ export function UnifiedDashboard() {
 
       {/* Actions Bar */}
       {!poolLoading && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <input
@@ -634,8 +641,12 @@ export function UnifiedDashboard() {
               }}
             />
           </div>
+          <AddMinerButton onClick={() => setAddMinerOpen(true)} />
         </div>
       )}
+
+      <ScanNetworkDialog open={addMinerOpen} onOpenChange={setAddMinerOpen} isJdMode={isJdMode} />
+
 
       {/* Workers Table */}
       {!poolLoading && (

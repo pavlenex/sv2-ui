@@ -145,8 +145,10 @@ const NETWORK_NAME = 'sv2-network';
 const CONFIG_VOLUME = 'sv2-config';
 const TRANSLATOR_CONTAINER = 'sv2-translator';
 const JDC_CONTAINER = 'sv2-jdc';
+const ASIC_BRIDGE_CONTAINER = 'sv2-asic-bridge';
 const TRANSLATOR_IMAGE = 'stratumv2/translator_sv2:main';
 const JDC_IMAGE = 'stratumv2/jd_client_sv2:main';
+const ASIC_BRIDGE_IMAGE = process.env.ASIC_BRIDGE_IMAGE ?? 'sv2-ui/asic-bridge:latest';
 const DOCKER_LOG_HEADER_SIZE = 8;
 
 /**
@@ -472,6 +474,40 @@ async function startJdc(
 }
 
 /**
+ * Start the asic-bridge sidecar that wraps the asic-rs library so the
+ * dashboard can scan the LAN and reconfigure miners.
+ *
+ * Runs with `network_mode: host` because asic-rs probes miners on the local
+ * subnet — bridged Docker networking would put them out of reach. The image
+ * is built locally from server/asic-bridge; if it isn't available we log and
+ * skip rather than failing the whole stack.
+ */
+async function startAsicBridge(): Promise<void> {
+  try {
+    await removeContainer(ASIC_BRIDGE_CONTAINER);
+
+    const container = await docker.createContainer({
+      Image: ASIC_BRIDGE_IMAGE,
+      name: ASIC_BRIDGE_CONTAINER,
+      Env: ['ASIC_BRIDGE_PORT=9099'],
+      HostConfig: {
+        NetworkMode: 'host',
+        RestartPolicy: { Name: 'unless-stopped' },
+      },
+    });
+
+    await container.start();
+    console.log('asic-bridge container started');
+  } catch (error) {
+    // Non-fatal: scan UI will surface its own "bridge unavailable" message.
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `Could not start asic-bridge container (network scanning will be unavailable): ${message}`
+    );
+  }
+}
+
+/**
  * Start the mining stack
  * Config files must already exist in configDir before calling this.
  */
@@ -502,6 +538,9 @@ export async function startStack(
 
   // Start Translator
   await startTranslator(`${configDir}/translator.toml`);
+
+  // Start asic-bridge (best effort — failures don't block mining startup).
+  await startAsicBridge();
 }
 
 /**
@@ -516,6 +555,7 @@ export async function stopStack(): Promise<void> {
   // cleanly disconnect from Bitcoin Core and can crash it.
   await removeContainer(JDC_CONTAINER);
   await removeContainer(TRANSLATOR_CONTAINER);
+  await removeContainer(ASIC_BRIDGE_CONTAINER);
 }
 
 /**

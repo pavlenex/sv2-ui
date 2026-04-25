@@ -24,6 +24,7 @@ import {
   readContainerLogs
 } from './docker.js';
 import { getLogDiagnostics, getLogStreams, readCollatedLogLines } from './logs/diagnostics.js';
+import { getNetworkInfo, startScan, pairMiner, setMinerPool } from './scan.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -482,6 +483,32 @@ function getContainerUrl(containerName: string, port: number): string {
     ? `http://${containerName}:${port}`
     : `http://localhost:${port}`;
 }
+
+/**
+ * GET /api/scan/network — return host primary IP and suggested CIDR.
+ */
+app.get('/api/scan/network', getNetworkInfo);
+
+/**
+ * POST /api/scan/start — stream NDJSON of identified miners.
+ */
+app.post('/api/scan/start', startScan);
+
+/**
+ * POST /api/scan/pair — pair a single miner.
+ */
+app.post('/api/scan/pair', pairMiner);
+
+/**
+ * POST /api/scan/set-pool — write our Translator/JDC URL to a miner.
+ * The Node server picks the destination based on the saved mode and the
+ * miner's reported SV2 capability — the browser never chooses the URL.
+ */
+app.post('/api/scan/set-pool', async (req, res) => {
+  const state = await loadState();
+  const jdMode = state.mode === 'jd';
+  await setMinerPool(req, res, jdMode);
+});
 
 /**
  * Proxy requests to Translator monitoring API

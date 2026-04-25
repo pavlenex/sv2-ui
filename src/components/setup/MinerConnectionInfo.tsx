@@ -28,9 +28,11 @@ function CopyableAddress({ address }: { address: string }) {
 interface MinerConnectionInfoProps {
   isJdMode: boolean;
   centered?: boolean;
+  /** Optional CTA tile rendered alongside the SV1/SV2 endpoint cards. */
+  trailingTile?: React.ReactNode;
 }
 
-export function MinerConnectionInfo({ isJdMode, centered = false }: MinerConnectionInfoProps) {
+export function MinerConnectionInfo({ isJdMode, centered = false, trailingTile }: MinerConnectionInfoProps) {
   const translatorUrl = `stratum+tcp://<your-machine-ip>:${TRANSLATOR_PORT}`;
   const jdcUrl = `stratum2+tcp://<your-machine-ip>:${JDC_PORT}/${JDC_AUTHORITY_PUBLIC_KEY}`;
 
@@ -40,13 +42,16 @@ export function MinerConnectionInfo({ isJdMode, centered = false }: MinerConnect
     </p>
   );
 
-  // When only one card is shown (SV1-only mode) it should stretch to full width.
-  // In JD mode two cards sit side-by-side on md+ screens.
+  // Card count drives the grid: 2 in non-JD (SV1 + trailing) or JD without trailing,
+  // 3 in JD mode with a trailing tile.
+  const cardCount = (isJdMode ? 2 : 1) + (trailingTile ? 1 : 0);
   const wrapperClass = centered
     ? 'flex flex-wrap justify-center gap-3'
-    : isJdMode
-      ? 'grid gap-3 md:grid-cols-2'
-      : 'grid gap-3';
+    : cardCount === 3
+      ? 'grid gap-3 md:grid-cols-3'
+      : cardCount === 2
+        ? 'grid gap-3 md:grid-cols-2'
+        : 'grid gap-3';
 
   return (
     <div className={wrapperClass}>
@@ -65,6 +70,8 @@ export function MinerConnectionInfo({ isJdMode, centered = false }: MinerConnect
           {hint}
         </div>
       )}
+
+      {trailingTile}
     </div>
   );
 }

@@ -1,0 +1,32 @@
+[package]
+name = "asic-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "HTTP bridge that wraps the asic-rs library so the SRI dashboard can scan and reconfigure miners"
+
+[[bin]]
+name = "asic-bridge"
+path = "src/main.rs"
+
+[dependencies]
+asic-rs = { git = "https://github.com/256foundation/asic-rs.git", tag = "v0.5.0" }
+asic-rs-core = { git = "https://github.com/256foundation/asic-rs.git", tag = "v0.5.0" }
+
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tower-http = { version = "0.5", features = ["cors"] }
+futures = "0.3"
+
+ipnet = "2.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
