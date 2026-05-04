@@ -27,7 +27,7 @@ export function ChannelInfo({ channel, type: _type }: ChannelInfoProps) {
       <InfoItem label="User Identity" value={channel.user_identity || '-'} />
       <InfoItem 
         label="Hashrate" 
-        value={formatHashrate(channel.nominal_hashrate)} 
+        value={formatHashrate(channel.nominal_hashrate ?? null)} 
         highlight 
       />
       <InfoItem 
@@ -36,7 +36,7 @@ export function ChannelInfo({ channel, type: _type }: ChannelInfoProps) {
       />
       <InfoItem 
         label="Shares Acknowledged" 
-        value={formatNumber(channel.shares_acknowledged)} 
+        value={formatNumber('shares_acknowledged' in channel ? channel.shares_acknowledged : (channel as ExtendedChannelInfo | StandardChannelInfo).shares_accepted)} 
       />
       {hasSharesPerMinute && (
         <InfoItem 

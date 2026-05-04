@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { 
-  GlobalInfo, 
-  ServerChannelsResponse, 
+import type {
+  GlobalInfo,
+  ServerChannelsResponse,
   Sv1ClientsResponse,
-  ClientsResponse,
-  ClientChannelsResponse,
-  ClientWithChannels,
+  Sv2ClientsResponse,
+  Sv2ClientChannelsResponse,
+  Sv2ClientInfo,
   ExtendedChannelInfo,
   StandardChannelInfo,
 } from '@/types/api';
@@ -85,7 +85,7 @@ function templateModeToInternalMode(templateMode: TemplateMode): 'jdc' | 'transl
 /**
  * Collapse detailed Sv2 client data into a single channel aggregate.
  */
-function aggregateSv2ClientChannels(clients: ClientWithChannels[]): AggregatedClientChannels {
+function aggregateSv2ClientChannels(clients: Sv2ClientInfo[]): AggregatedClientChannels {
   return clients.reduce<AggregatedClientChannels>((aggregated, client) => {
     aggregated.total_extended += client.extended_channels.length;
     aggregated.total_standard += client.standard_channels.length;
@@ -103,16 +103,16 @@ function aggregateSv2ClientChannels(clients: ClientWithChannels[]): AggregatedCl
 /**
  * Fetch all Sv2 clients plus their channels.
  */
-async function fetchAllSv2Clients(baseUrl: string): Promise<ClientWithChannels[]> {
-  const clientsResponse = await fetchWithTimeout<ClientsResponse>(`${baseUrl}/clients?offset=0&limit=100`);
-  
+async function fetchAllSv2Clients(baseUrl: string): Promise<Sv2ClientInfo[]> {
+  const clientsResponse = await fetchWithTimeout<Sv2ClientsResponse>(`${baseUrl}/clients?offset=0&limit=100`);
+
   if (clientsResponse.items.length === 0) {
     return [];
   }
-  
+
   const clientsWithChannels = await Promise.all(clientsResponse.items.map(async (client) => {
     try {
-      const channels = await fetchWithTimeout<ClientChannelsResponse>(
+      const channels = await fetchWithTimeout<Sv2ClientChannelsResponse>(
         `${baseUrl}/clients/${client.client_id}/channels?offset=0&limit=100`
       );
 
@@ -147,16 +147,16 @@ async function fetchAllSv2Clients(baseUrl: string): Promise<ClientWithChannels[]
 export function usePoolData(templateMode: TemplateMode = null) {
   const endpoints = getEndpointsCached();
   const mode = templateModeToInternalMode(templateMode);
-  
+
   const baseUrl = mode === 'jdc' ? endpoints.jdc.base : endpoints.translator.base;
-  
+
   // Fetch global stats (includes upstream summary)
   const globalQuery = useQuery({
     queryKey: ['pool-global', mode],
     queryFn: () => fetchWithTimeout<GlobalInfo>(`${baseUrl}/global`),
     refetchInterval: 3000,
   });
-  
+
   // Fetch upstream server channels (Pool connection: shares, best diff)
   const serverChannelsQuery = useQuery({
     queryKey: ['server-channels', mode],
@@ -176,7 +176,7 @@ export function usePoolData(templateMode: TemplateMode = null) {
     () => (sv2ClientsQuery.data ? aggregateSv2ClientChannels(sv2ClientsQuery.data) : undefined),
     [sv2ClientsQuery.data]
   );
-  
+
   return {
     mode,
     modeLabel: mode === 'jdc' ? endpoints.jdc.label : endpoints.translator.label,
@@ -202,7 +202,7 @@ export function usePoolData(templateMode: TemplateMode = null) {
  */
 export function useSv1ClientsData(offset = 0, limit = 25, enabled = true) {
   const endpoints = getEndpointsCached();
-  
+
   return useQuery({
     queryKey: ['sv1-clients', offset, limit],
     queryFn: async () => {
@@ -241,7 +241,7 @@ export function useTranslatorServerChannels(enabled = true) {
  */
 export function useTranslatorHealth() {
   const endpoints = getEndpointsCached();
-  
+
   return useQuery({
     queryKey: ['translator-health'],
     queryFn: async () => {
@@ -263,7 +263,7 @@ export function useTranslatorHealth() {
  */
 export function useJdcHealth(enabled = true) {
   const endpoints = getEndpointsCached();
-  
+
   return useQuery({
     queryKey: ['jdc-health'],
     queryFn: async () => {

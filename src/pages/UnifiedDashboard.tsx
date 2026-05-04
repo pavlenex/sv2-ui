@@ -406,10 +406,10 @@ export function UnifiedDashboard() {
 
     return allSv1Clients.map((client) => ({
       connection_id: client.client_id,
-      channel_id: client.channel_id,
+      channel_id: client.channel_id ?? null,
       channel_type: 'sv1' as ChannelType,
       user_identity: client.user_identity,
-      estimated_hashrate: client.hashrate,
+      estimated_hashrate: client.hashrate ?? null,
       best_diff: null,
       search_text: [
         client.authorized_worker_name || '',
