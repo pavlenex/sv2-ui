@@ -6,7 +6,6 @@
 
 import express from 'express';
 import cors from 'cors';
-import net from 'net';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
@@ -23,8 +22,8 @@ import {
   getDockerConnectionInfo,
   expandHomePath,
   readContainerLogs,
-  isRunningInsideDocker,
-  probeHostBitcoinSocketWithDocker
+
+  probeBitcoinSocketWithDocker
 } from './docker.js';
 import { getLogDiagnostics, getLogStreams, readCollatedLogLines } from './logs/diagnostics.js';
 
@@ -103,10 +102,10 @@ app.get('/api/status', async (_req, res) => {
   try {
     const state = await loadState();
     const containers = await getStackStatus(state.mode);
-    
+
     const running = state.mode === 'jd'
       ? (containers.translator?.status === 'healthy' || containers.translator?.status === 'starting') &&
-        (containers.jdc?.status === 'healthy' || containers.jdc?.status === 'starting')
+      (containers.jdc?.status === 'healthy' || containers.jdc?.status === 'starting')
       : (containers.translator?.status === 'healthy' || containers.translator?.status === 'starting');
 
     const response: StatusResponse = {
@@ -143,82 +142,28 @@ app.get('/api/config', async (_req, res) => {
   }
 });
 
-/**
- * Try to open the Unix socket to confirm something is actually listening.
- * Filesystem checks are not enough — Bitcoin Core leaves its socket file on
- * disk after a crash, so stat() would return a stale "valid" result.
- */
-function probeUnixSocket(socketPath: string, timeoutMs = 1000): Promise<{ valid: true } | { valid: false; error: string }> {
-  return new Promise((resolve) => {
-    const socket = net.createConnection({ path: socketPath });
-    let settled = false;
-    const finish = (result: { valid: true } | { valid: false; error: string }) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve(result);
-    };
-
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => finish({ valid: true }));
-    socket.once('timeout', () => finish({
-      valid: false,
-      error: `Socket did not respond within ${timeoutMs}ms. Bitcoin Core may be unresponsive.`,
-    }));
-    socket.once('error', (err: NodeJS.ErrnoException) => {
-      switch (err.code) {
-        case 'ENOENT':
-          finish({ valid: false, error: `Socket not found at ${socketPath}. Make sure Bitcoin Core is running with IPC enabled.` });
-          break;
-        case 'ECONNREFUSED':
-          finish({ valid: false, error: `Socket file exists at ${socketPath} but nothing is listening. Bitcoin Core may have crashed or been stopped.` });
-          break;
-        case 'EACCES':
-          finish({ valid: false, error: `Permission denied for ${socketPath}. Check that the sv2-ui process can read this file.` });
-          break;
-        case 'ENOTSOCK':
-          finish({ valid: false, error: `Path ${socketPath} is not a Unix socket.` });
-          break;
-        default:
-          finish({ valid: false, error: err.message || 'Unknown error connecting to socket' });
-      }
-    });
-  });
-}
 
 /**
  * POST /api/validate/bitcoin-socket - Check if a Bitcoin Core IPC socket is listening
  */
 app.post('/api/validate/bitcoin-socket', async (req, res) => {
-  const { socket_path, network } = req.body;
+  const { socket_path } = req.body;
   if (!socket_path || typeof socket_path !== 'string') {
     return res.status(400).json({ valid: false, error: 'socket_path is required' });
   }
 
-  const result = await validateBitcoinSocket(socket_path, {
-    network: network === 'mainnet' || network === 'testnet4' ? network : undefined,
-  });
+  const resolved = expandHomePath(socket_path);
+  const result = await probeBitcoinSocketWithDocker(resolved);
   return res.json(result);
 });
-
-async function validateBitcoinSocket(
-  socketPath: string,
-  options: { network?: 'mainnet' | 'testnet4' } = {}
-): Promise<{ valid: true } | { valid: false; error: string }> {
-  const resolved = expandHomePath(socketPath);
-  return isRunningInsideDocker()
-    ? await probeHostBitcoinSocketWithDocker(resolved, 1000, options)
-    : await probeUnixSocket(resolved);
-}
 
 async function getBitcoinSocketStartupError(data: SetupData): Promise<string | null> {
   if (data.mode !== 'jd' || !data.bitcoin) {
     return null;
   }
 
-  const result = await validateBitcoinSocket(data.bitcoin.socket_path, {
-    network: data.bitcoin.network,
-  });
+  const resolved = expandHomePath(data.bitcoin.socket_path);
+  const result = await probeBitcoinSocketWithDocker(resolved);
   return result.valid ? null : result.error;
 }
 
@@ -455,9 +400,9 @@ app.post('/api/setup', async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('Setup error:', error);
-    const response: SetupResponse = { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    const response: SetupResponse = {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
     res.status(500).json(response);
   }
@@ -500,7 +445,7 @@ app.post('/api/restart', async (_req, res) => {
 
     await stopStack();
     await startStack(state.data, CONFIG_DIR);
-    
+
     res.json({ success: true });
   } catch (error) {
     console.error('Restart error:', error);
@@ -515,14 +460,14 @@ app.post('/api/reset', async (_req, res) => {
   try {
     // Stop containers first
     await stopStack();
-    
+
     // Delete state file
     try {
       await fs.unlink(STATE_FILE);
     } catch {
       // File might not exist, that's fine
     }
-    
+
     // Delete config files
     try {
       await fs.unlink(path.join(CONFIG_DIR, 'translator.toml'));
@@ -530,7 +475,7 @@ app.post('/api/reset', async (_req, res) => {
     } catch {
       // Files might not exist
     }
-    
+
     res.json({ success: true });
   } catch (error) {
     console.error('Reset error:', error);
@@ -603,7 +548,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 app.listen(PORT, () => {
   const dockerConnection = getDockerConnectionInfo();
-  
+
   console.log(`sv2-ui server running on http://localhost:${PORT}`);
   console.log(`Config directory: ${CONFIG_DIR}`);
   console.log(`Docker: ${dockerConnection.endpoint} (${dockerConnection.source})`);
