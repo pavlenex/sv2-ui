@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { StepProps, BitcoinCoreVersion, BitcoinConfig, OperatingSystem } from '../types';
+import type { BitcoinCoreVersion, OperatingSystem } from '@sv2-ui/shared';
+import { StepProps, type BitcoinConfig } from '../types';
 import { Copy, Check, ExternalLink, Loader2, RotateCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { BitcoinRpcDiscoveryResult } from '@/hooks/useBitcoinRpcDiscovery';
 

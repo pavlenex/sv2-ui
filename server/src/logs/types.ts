@@ -1,4 +1,4 @@
-import type { SetupMode } from '../types.js';
+import type { SetupMode } from '@sv2-ui/shared';
 
 export type LogContainerRole = 'translator' | 'jdc';
 export type LogOutputStream = 'stdout' | 'stderr';

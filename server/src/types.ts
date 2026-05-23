@@ -1,9 +1,4 @@
-/**
- * Shared types between frontend and backend
- */
-
-export type MiningMode = 'solo' | 'pool';
-export type SetupMode = 'jd' | 'no-jd';
+import type { MiningMode, SetupMode, OperatingSystem, BitcoinCoreVersion, BitcoinNetwork, HealthStatus } from '@sv2-ui/shared';
 
 export interface PoolConfig {
   name: string;
@@ -12,12 +7,9 @@ export interface PoolConfig {
   authority_public_key: string;
 }
 
-export type OperatingSystem = 'linux' | 'macos';
-export type BitcoinCoreVersion = '30.2' | '31.0';
-
 export interface BitcoinConfig {
   core_version: BitcoinCoreVersion | null;
-  network: 'mainnet' | 'testnet4';
+  network: BitcoinNetwork;
   os: OperatingSystem;
   customDataDir: string;
   socket_path: string;
@@ -46,8 +38,6 @@ export interface SetupData {
   jdc: JdcConfig | null;
   translator: TranslatorConfig;
 }
-
-export type HealthStatus = 'healthy' | 'unhealthy' | 'starting' | 'stopped';
 
 export interface ContainerStatus {
   id: string;

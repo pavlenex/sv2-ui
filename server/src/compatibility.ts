@@ -1,6 +1,5 @@
 import type { SetupData } from './types.js';
-
-export type BitcoinCoreVersion = '30.2' | '31.0';
+import type { BitcoinCoreVersion } from '@sv2-ui/shared';
 
 export type CompatibilityProfileId =
   | 'bitcoin-core-30.2'

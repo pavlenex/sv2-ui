@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MiningMode, StepProps } from '../types';
+import type { MiningMode } from '@sv2-ui/shared';
+import type { StepProps } from '../types';
 import { Miner3D, type MinerPhase } from './Miner3D';
 
 export function MiningModeSelection({ updateData, onNext }: StepProps) {

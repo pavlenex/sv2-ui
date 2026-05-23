@@ -6,7 +6,8 @@ import fs from 'fs';
 import path from 'path'
 import Docker from 'dockerode';
 import os from 'os';
-import type { SetupData, ContainerStatus, HealthStatus } from './types.js';
+import type { HealthStatus } from '@sv2-ui/shared';
+import type { SetupData, ContainerStatus } from './types.js';
 import type { ContainerLogLine, LogContainerRole, LogOutputStream } from './logs/types.js';
 import { getImageSelectionForSetup } from './compatibility.js';
 import { bitcoinSocketValidatorScript } from './bitcoin-socket-validator.js';
