@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { isSupportedBitcoinCoreVersion } from '@sv2-ui/shared';
+
 export interface BitcoinRpcDiscoveryResult {
   valid: true;
   dataDir: string;
@@ -35,8 +37,7 @@ export function useBitcoinRpcDiscovery() {
       const hasUnsupportedVersion = results.some(n => {
         const major = Math.floor(n.version / 10000);
         const minor = Math.floor((n.version % 10000) / 100);
-        const v = `${major}.${minor}`;
-        return v !== '30.2' && v !== '31.0';
+        return !isSupportedBitcoinCoreVersion(`${major}.${minor}`);
       });
       if (hasUnsupportedVersion) return false;
       const isSyncing = results.some(n => n.initialBlockDownload);
