@@ -30,13 +30,15 @@ COPY --from=builder /app/dist ./public
 
 # Copy built backend
 COPY --from=builder /app/server/dist ./dist
-COPY --from=builder /app/server/package.json ./
+COPY --from=builder /app/server/package.json ./server/
+COPY --from=builder /app/package.json /app/package-lock.json ./
 
 # Copy shared source (Node 24 loads .ts natively)
 COPY --from=builder /app/shared ./shared
 
-# Install production dependencies only
-RUN npm install --omit=dev
+# Install server production deps using workspace resolution
+# so @sv2-ui/shared resolves locally instead of from the registry
+RUN npm install --omit=dev -w server && rm -f package.json package-lock.json
 
 # Create a symlink so @sv2-ui/shared resolves at runtime
 RUN mkdir -p /app/node_modules/@sv2-ui && ln -s ../../shared /app/node_modules/@sv2-ui/shared
