@@ -1,52 +1,5 @@
-/**
- * Setup wizard types
- */
-
-export type MiningMode = 'solo' | 'pool';
-export type SetupMode = 'jd' | 'no-jd';
-
-export interface PoolConfig {
-  name: string;
-  address: string;
-  port: number;
-  authority_public_key: string;
-}
-
-export type OperatingSystem = 'linux' | 'macos';
-export type BitcoinCoreVersion = '30.2' | '31.0';
-
-export interface BitcoinConfig {
-  core_version: BitcoinCoreVersion | null;
-  network: 'mainnet' | 'testnet4';
-  os: OperatingSystem;
-  customDataDir: string;
-  socket_path: string;
-  discoveredLogPath?: string;
-}
-
-export interface JdcConfig {
-  user_identity: string;
-  jdc_signature: string;
-  coinbase_reward_address: string;
-}
-
-export interface TranslatorConfig {
-  user_identity: string;
-  enable_vardiff: boolean;
-  aggregate_channels: boolean;
-  min_hashrate: number;
-  shares_per_minute: number;
-  downstream_extranonce2_size: number;
-}
-
-export interface SetupData {
-  miningMode: MiningMode | null;
-  mode: SetupMode | null;
-  pool: PoolConfig | null;
-  bitcoin: BitcoinConfig | null;
-  jdc: JdcConfig | null;
-  translator: TranslatorConfig | null;
-}
+import type { SetupData } from '@sv2-ui/shared';
+export type { MiningMode, SetupMode, OperatingSystem, BitcoinCoreVersion, BitcoinNetwork, PoolConfig, BitcoinConfig, JdcConfig, TranslatorConfig, SetupData } from '@sv2-ui/shared';
 
 export const initialSetupData: SetupData = {
   miningMode: null,

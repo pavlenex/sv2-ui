@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StepProps, PoolConfig } from '../types';
+import { DEFAULT_POOL_PORT } from '@sv2-ui/shared';
 import { Check } from 'lucide-react';
 import { PoolIcon } from '@/components/ui/pool-icon';
 import { POOL_MINING_NO_JD, POOL_MINING_JD, SOLO_POOLS, type KnownPool } from '@/lib/pools';
@@ -30,7 +31,7 @@ export function PoolConfigStep({ data, updateData, onNext }: StepProps) {
   const [customPool, setCustomPool] = useState<PoolConfig>({
     name: 'Custom Pool',
     address: '',
-    port: 34254,
+    port: DEFAULT_POOL_PORT,
     authority_public_key: '',
   });
 
@@ -176,7 +177,7 @@ export function PoolConfigStep({ data, updateData, onNext }: StepProps) {
               id="pool-port"
               type="number"
               value={customPool.port}
-              onChange={(e) => handleCustomChange('port', parseInt(e.target.value) || 34254)}
+              onChange={(e) => handleCustomChange('port', parseInt(e.target.value) || DEFAULT_POOL_PORT)}
               aria-required="true"
               className="w-full h-10 px-3 rounded-lg border border-input bg-background focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
             />

@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { rpcVersionToCoreVersion } from '@sv2-ui/shared';
+import type { BitcoinNetwork } from '@sv2-ui/shared';
+
 export interface BitcoinRpcDiscoveryResult {
   valid: true;
   dataDir: string;
-  network: 'mainnet' | 'testnet4';
+  network: BitcoinNetwork;
   chain: string;
   version: number;
   initialBlockDownload: boolean;
@@ -32,12 +35,7 @@ export function useBitcoinRpcDiscovery() {
     refetchInterval: (query) => {
       const results = query.state.data as BitcoinRpcDiscoveryResult[] | undefined;
       if (!results || results.length === 0) return false;
-      const hasUnsupportedVersion = results.some(n => {
-        const major = Math.floor(n.version / 10000);
-        const minor = Math.floor((n.version % 10000) / 100);
-        const v = `${major}.${minor}`;
-        return v !== '30.2' && v !== '31.0';
-      });
+      const hasUnsupportedVersion = results.some(n => !rpcVersionToCoreVersion(n.version));
       if (hasUnsupportedVersion) return false;
       const isSyncing = results.some(n => n.initialBlockDownload);
       return isSyncing ? 10_000 : false;

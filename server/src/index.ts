@@ -12,7 +12,8 @@ import { fileURLToPath } from 'url';
 
 import type { SetupData, StatusResponse, SetupResponse } from './types.js';
 import { generateTranslatorConfig, generateJdcConfig, normalizeSetupData } from './config-generator.js';
-import { isSupportedBitcoinCoreVersion } from './compatibility.js';
+import { isSupportedBitcoinCoreVersion, TRANSLATOR_MONITORING_PORT, JDC_MONITORING_PORT } from '@sv2-ui/shared';
+import { BITCOIN_ERROR_MESSAGES } from './messages.js';
 import {
   startStack,
   stopStack,
@@ -78,7 +79,7 @@ function getBitcoinCoreVersionError(data: SetupData): string | null {
   }
 
   if (!isSupportedBitcoinCoreVersion(data.bitcoin?.core_version)) {
-    return 'Select a supported Bitcoin Core version: 30.2 or 31.0';
+    return BITCOIN_ERROR_MESSAGES.selectVersion;
   }
 
   return null;
@@ -202,11 +203,11 @@ app.put('/api/config', async (req, res) => {
     const requiresPool = !(newData.miningMode === 'solo' && newData.mode === 'jd');
 
     if (!newData.mode || !newData.translator || (requiresPool && !newData.pool)) {
-      return res.status(400).json({ success: false, error: 'Missing required configuration' });
+      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.missingConfig });
     }
 
     if (newData.mode === 'jd' && (!newData.jdc || !newData.bitcoin)) {
-      return res.status(400).json({ success: false, error: 'JD mode requires JDC and Bitcoin configuration' });
+      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.jdConfig });
     }
 
     const bitcoinCoreVersionError = getBitcoinCoreVersionError(newData);
@@ -336,11 +337,11 @@ app.post('/api/setup', async (req, res) => {
 
     // Validate required fields
     if (!data.mode || !data.translator || (requiresPool && !data.pool)) {
-      return res.status(400).json({ success: false, error: 'Missing required configuration' });
+      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.missingConfig });
     }
 
     if (data.mode === 'jd' && (!data.jdc || !data.bitcoin)) {
-      return res.status(400).json({ success: false, error: 'JD mode requires JDC and Bitcoin configuration' });
+      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.jdConfig });
     }
 
     const bitcoinCoreVersionError = getBitcoinCoreVersionError(data);
@@ -511,7 +512,7 @@ function getContainerUrl(containerName: string, port: number): string {
  * /translator-api/v1/global -> http://sv2-translator:9092/api/v1/global
  */
 app.use('/translator-api', async (req, res) => {
-  const targetUrl = `${getContainerUrl('sv2-translator', 9092)}/api${req.url}`;
+  const targetUrl = `${getContainerUrl('sv2-translator', TRANSLATOR_MONITORING_PORT)}/api${req.url}`;
   try {
     const response = await fetch(targetUrl, {
       method: req.method,
@@ -530,7 +531,7 @@ app.use('/translator-api', async (req, res) => {
  * /jdc-api/v1/global -> http://sv2-jdc:9091/api/v1/global
  */
 app.use('/jdc-api', async (req, res) => {
-  const targetUrl = `${getContainerUrl('sv2-jdc', 9091)}/api${req.url}`;
+  const targetUrl = `${getContainerUrl('sv2-jdc', JDC_MONITORING_PORT)}/api${req.url}`;
   try {
     const response = await fetch(targetUrl, {
       method: req.method,

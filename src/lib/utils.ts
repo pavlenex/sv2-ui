@@ -3,6 +3,7 @@ import { twMerge } from 'tailwind-merge';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import bs58check from 'bs58check';
+import type { BitcoinNetwork } from '@sv2-ui/shared';
 
 // Required for taproot (P2TR) address validation
 bitcoin.initEccLib(ecc);
@@ -90,7 +91,7 @@ export function calculateSharesPerMinute(shares: number, uptimeSecs: number): nu
  * Validates a Bitcoin address against the specified network.
  * Supports P2PKH, P2SH, P2WPKH, P2WSH, and P2TR address formats.
  */
-export function isValidBitcoinAddress(addr: string, network: 'mainnet' | 'testnet4'): boolean {
+export function isValidBitcoinAddress(addr: string, network: BitcoinNetwork): boolean {
   if (!addr) return false;
   const btcNetwork = network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
   try {
@@ -105,7 +106,7 @@ export function isValidBitcoinAddress(addr: string, network: 'mainnet' | 'testne
  * Returns an error message if the address is invalid for the given network,
  * distinguishing between a wrong network address and a completely invalid one.
  */
-export function getBitcoinAddressError(addr: string, network: 'mainnet' | 'testnet4'): string | null {
+export function getBitcoinAddressError(addr: string, network: BitcoinNetwork): string | null {
   if (!addr || isValidBitcoinAddress(addr, network)) return null;
   const otherNetwork = network === 'mainnet' ? 'testnet4' : 'mainnet';
   return isValidBitcoinAddress(addr, otherNetwork) ? 'Wrong network' : 'Invalid Bitcoin address';
@@ -114,7 +115,7 @@ export function getBitcoinAddressError(addr: string, network: 'mainnet' | 'testn
 /**
  * Returns a network-specific address placeholder for form hints.
  */
-export function getBitcoinAddressPlaceholder(network: 'mainnet' | 'testnet4'): string {
+export function getBitcoinAddressPlaceholder(network: BitcoinNetwork): string {
   return network === 'mainnet' ? 'bc1q...' : 'tb1q...';
 }
 

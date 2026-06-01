@@ -3,51 +3,15 @@
  * Based on sv2-apps/docker/config templates
  */
 
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import {
+  JDC_AUTHORITY_PUBLIC_KEY,
+  JDC_PORT,
+  TRANSLATOR_PORT,
+  shouldAggregateTranslatorChannels,
+  DEFAULT_SHARES_PER_MINUTE,
+  DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+} from '@sv2-ui/shared';
 import type { SetupData } from './types.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const BRAIINS_POOL_AUTHORITY_KEY = '9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna';
-const BRAIINS_POOL_ADDRESS = 'stratum.braiins.com';
-const DEFAULT_SHARES_PER_MINUTE = 6;
-const DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE = 4;
-
-interface PortsConfig {
-  TRANSLATOR_PORT: number;
-  JDC_PORT: number;
-  JDC_AUTHORITY_PUBLIC_KEY: string;
-}
-
-function loadPorts(): PortsConfig {
-  // In production (Docker), __dirname is /app/dist, so ../shared resolves to /app/shared
-  // In development, __dirname is server/dist, so ../shared resolves to server/shared (wrong)
-  // We need to go up one more level in dev: ../../shared
-  // Try production path first, fall back to dev path
-  const prodPath = join(__dirname, '../shared/ports.json');
-  const devPath = join(__dirname, '../../shared/ports.json');
-  
-  try {
-    const data = readFileSync(prodPath, 'utf-8');
-    return JSON.parse(data) as PortsConfig;
-  } catch {
-    const data = readFileSync(devPath, 'utf-8');
-    return JSON.parse(data) as PortsConfig;
-  }
-}
-
-const ports = loadPorts();
-export const TRANSLATOR_PORT = ports.TRANSLATOR_PORT;
-export const JDC_PORT = ports.JDC_PORT;
-export const JDC_AUTHORITY_PUBLIC_KEY = ports.JDC_AUTHORITY_PUBLIC_KEY;
-
-function shouldAggregateTranslatorChannels(data: SetupData): boolean {
-  if (!data.pool) return false;
-
-  return data.pool.authority_public_key === BRAIINS_POOL_AUTHORITY_KEY
-    || data.pool.address.toLowerCase() === BRAIINS_POOL_ADDRESS;
-}
 
 function positiveNumber(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -69,7 +33,7 @@ export function normalizeSetupData(data: SetupData): SetupData {
     ...data,
     translator: {
       ...data.translator,
-      aggregate_channels: shouldAggregateTranslatorChannels(data),
+      aggregate_channels: shouldAggregateTranslatorChannels(data.pool),
       shares_per_minute: positiveNumber(data.translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE),
       downstream_extranonce2_size: positiveInteger(
         data.translator.downstream_extranonce2_size,

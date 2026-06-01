@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { isRetryableBitcoinSocketError } from '@/lib/bitcoinSocketErrors';
+import type { BitcoinCoreVersion, BitcoinNetwork } from '@sv2-ui/shared';
 
 interface SocketValidationResult {
   valid: boolean;
@@ -9,8 +10,8 @@ interface SocketValidationResult {
 
 type BitcoinSocketValidationParams = {
   socketPath: string;
-  network: 'mainnet' | 'testnet4';
-  coreVersion: '30.2' | '31.0' | null;
+  network: BitcoinNetwork;
+  coreVersion: BitcoinCoreVersion | null;
 };
 
 // Returns null when the backend is not reachable (standalone mode — skip validation).
@@ -48,8 +49,8 @@ async function validateSocket({
  */
 export function useBitcoinSocketValidation(
   socketPath: string,
-  network: 'mainnet' | 'testnet4',
-  coreVersion: '30.2' | '31.0' | null,
+  network: BitcoinNetwork,
+  coreVersion: BitcoinCoreVersion | null,
   debounceMs = 800
 ) {
   const [debouncedPath, setDebouncedPath] = useState(socketPath);

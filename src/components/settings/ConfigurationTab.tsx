@@ -17,6 +17,7 @@ import {
 } from '@/lib/utils';
 import { isBitcoinSocketError } from '@/lib/bitcoinSocketErrors';
 import type { SetupData } from '@/components/setup/types';
+import { DEFAULT_SHARES_PER_MINUTE, DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE, DEFAULT_POOL_PORT } from '@sv2-ui/shared';
 import {
   Loader2,
   AlertCircle,
@@ -55,9 +56,6 @@ function clearPersistedDashboardState() {
 const SETUP_TARGET_STEP_STORAGE_KEY = 'sv2-ui-setup-target-step';
 
 type EditingField = null | 'pool' | 'mode' | 'identity' | 'signature' | 'advanced';
-
-const DEFAULT_SHARES_PER_MINUTE = 6;
-const DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE = 4;
 
 function isPositiveNumber(value: string): boolean {
   const parsed = Number(value);
@@ -571,7 +569,7 @@ export function ConfigurationTab() {
                     type="button"
                     onClick={() => {
                       setIsCustomPool(true);
-                      setEditPool({ name: 'Custom Pool', address: '', port: 34254, authority_public_key: '' });
+                      setEditPool({ name: 'Custom Pool', address: '', port: DEFAULT_POOL_PORT, authority_public_key: '' });
                     }}
                     className={`w-full p-3 rounded-lg border transition-all text-left ${
                       isCustomPool
@@ -609,8 +607,8 @@ export function ConfigurationTab() {
                         <input
                           id="edit-pool-port"
                           type="number"
-                          value={editPool?.port ?? 34254}
-                          onChange={e => setEditPool(prev => prev ? { ...prev, port: parseInt(e.target.value) || 34254 } : prev)}
+                          value={editPool?.port ?? DEFAULT_POOL_PORT}
+                          onChange={e => setEditPool(prev => prev ? { ...prev, port: parseInt(e.target.value) || DEFAULT_POOL_PORT } : prev)}
                           className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
                         />
                       </div>

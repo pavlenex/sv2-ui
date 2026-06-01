@@ -1,5 +1,5 @@
 import { readContainerLogs } from '../docker.js';
-import type { SetupMode } from '../types.js';
+import type { SetupMode } from '@sv2-ui/shared';
 import { collectDiagnostics } from './parsers.js';
 import type {
   ContainerLogLine,

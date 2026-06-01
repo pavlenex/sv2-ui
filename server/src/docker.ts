@@ -6,7 +6,15 @@ import fs from 'fs';
 import path from 'path'
 import Docker from 'dockerode';
 import os from 'os';
-import type { SetupData, ContainerStatus, HealthStatus } from './types.js';
+import type { BitcoinNetwork, HealthStatus } from '@sv2-ui/shared';
+import {
+  CONTAINER_NAMES,
+  DOCKER_SOCKET_PATHS,
+  DEFAULT_BITCOIN_PATHS,
+  SUPPORTED_NETWORKS,
+  RPC_PORTS,
+} from '@sv2-ui/shared';
+import type { SetupData, ContainerStatus } from './types.js';
 import type { ContainerLogLine, LogContainerRole, LogOutputStream } from './logs/types.js';
 import { getImageSelectionForSetup } from './compatibility.js';
 import { bitcoinSocketValidatorScript } from './bitcoin-socket-validator.js';
@@ -27,14 +35,7 @@ export function expandHomePath(inputPath: string): string {
   return inputPath;
 }
 
-const DEFAULT_DOCKER_SOCKET = '/var/run/docker.sock';
-const KNOWN_DOCKER_SOCKET_PATHS = [
-  DEFAULT_DOCKER_SOCKET,
-  '~/.docker/run/docker.sock',
-  '~/Library/Containers/com.docker.docker/Data/docker-cli.sock',
-  '~/.colima/default/docker.sock',
-  '~/.orbstack/run/docker.sock',
-];
+const DEFAULT_DOCKER_SOCKET = DOCKER_SOCKET_PATHS[0];
 
 type DockerConnectionConfig = {
   endpoint: string;
@@ -43,7 +44,7 @@ type DockerConnectionConfig = {
 };
 
 function listAvailableDockerSockets(): string[] {
-  return KNOWN_DOCKER_SOCKET_PATHS
+  return DOCKER_SOCKET_PATHS
     .map(expandHomePath)
     .filter((socketPath, index, paths) => paths.indexOf(socketPath) === index && fs.existsSync(socketPath));
 }
@@ -147,10 +148,10 @@ function refreshDockerConnection(): void {
   docker = new Docker(dockerConnection.options);
 }
 
-const NETWORK_NAME = 'sv2-network';
-const CONFIG_VOLUME = 'sv2-config';
-const TRANSLATOR_CONTAINER = 'sv2-translator';
-const JDC_CONTAINER = 'sv2-jdc';
+const NETWORK_NAME = CONTAINER_NAMES.network;
+const CONFIG_VOLUME = CONTAINER_NAMES.configVolume;
+const TRANSLATOR_CONTAINER = CONTAINER_NAMES.translator;
+const JDC_CONTAINER = CONTAINER_NAMES.jdc;
 const DOCKER_LOG_HEADER_SIZE = 8;
 
 /**
@@ -179,7 +180,7 @@ export type BitcoinRpcValidationResult =
 export type BitcoinRpcDiscoveryResult = {
   valid: boolean;
   dataDir: string;
-  network: 'mainnet' | 'testnet4';
+  network: BitcoinNetwork;
   chain?: string;
   version?: number;
   initialBlockDownload?: boolean;
@@ -211,16 +212,13 @@ export function getBitcoinRpcProbeTransports(): BitcoinRpcProbeTransport[] {
 }
 
 export async function autoDiscoverBitcoinRpc(): Promise<BitcoinRpcDiscoveryResult[]> {
-  const osPaths = [
-    expandHomePath('~/.bitcoin'),
-    expandHomePath('~/Library/Application Support/Bitcoin'),
-  ];
+  const osPaths = Object.values(DEFAULT_BITCOIN_PATHS).map(expandHomePath);
 
   for (const dataDir of osPaths) {
     const results: BitcoinRpcDiscoveryResult[] = [];
     let mountFailed = false;
 
-    for (const network of ['mainnet', 'testnet4'] as const) {
+    for (const network of SUPPORTED_NETWORKS) {
       try {
         const probeResult = await probeBitcoinRpcWithDocker(dataDir, network);
         results.push({
@@ -299,10 +297,10 @@ export async function probeBitcoinSocketWithDocker(
 
 export async function probeBitcoinRpcWithDocker(
   dataDir: string,
-  network: 'mainnet' | 'testnet4',
+  network: BitcoinNetwork,
 ): Promise<BitcoinRpcValidationResult> {
   const containerDataDir = "/tmp/bitcoin";
-  const rpcPort = network === 'mainnet' ? 8332 : 48332;
+  const rpcPort = RPC_PORTS[network];
 
   try {
     await pullImage("node:20-bookworm-slim");
