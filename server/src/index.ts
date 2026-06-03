@@ -145,6 +145,13 @@ app.get('/api/config', async (_req, res) => {
 
 
 /**
+ * GET /api/env - Host environment variables relevant to the UI
+ */
+app.get('/api/env', (_req, res) => {
+  res.json({ HOST_OS: process.env.HOST_OS || null });
+});
+
+/**
  * POST /api/validate/bitcoin-socket - Check if a Bitcoin Core IPC socket is listening
  */
 app.post('/api/validate/bitcoin-socket', async (req, res) => {

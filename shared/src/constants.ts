@@ -7,6 +7,7 @@ export const SUPPORTED_NETWORKS: BitcoinNetwork[] = ['mainnet', 'testnet4'];
 export const DEFAULT_BITCOIN_PATHS: Record<OperatingSystem, string> = {
   linux: '~/.bitcoin',
   macos: '~/Library/Application Support/Bitcoin',
+  umbrel: '~/.bitcoin',
 };
 
 export const RPC_PORTS: Record<BitcoinNetwork, number> = {

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { rpcVersionToCoreVersion, DEFAULT_BITCOIN_PATHS, computeDefaultSocketPath, type OperatingSystem } from '@sv2-ui/shared';
+import { rpcVersionToCoreVersion, DEFAULT_BITCOIN_PATHS, computeDefaultSocketPath, type OperatingSystem, inferOsFromDataDir, mapHostOsToOperatingSystem } from '@sv2-ui/shared';
 import { BITCOIN_MESSAGES } from '@/lib/messages';
-import { StepProps } from '../types';
+import { StepProps, BitcoinConfig } from '../types';
 import { Copy, Check, ExternalLink, Loader2, RotateCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { BitcoinRpcDiscoveryResult } from '@/hooks/useBitcoinRpcDiscovery';
-import type { BitcoinConfig } from '../types';
+import { useHostEnv } from '@/hooks/useHostEnv';
 
 interface BitcoinPrereqStepProps extends StepProps {
   discoveredNodes: BitcoinRpcDiscoveryResult[];
@@ -13,7 +13,8 @@ interface BitcoinPrereqStepProps extends StepProps {
   onAutoAdvance: () => void;
 }
 
-export function BitcoinPrereqStep({ onNext, discoveredNodes, isDiscovering, onRetryDiscovery, updateData, onAutoAdvance }: BitcoinPrereqStepProps) {
+export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, isDiscovering, onRetryDiscovery, onAutoAdvance }: BitcoinPrereqStepProps) {
+  const { hostOs, isLoading: hostOsLoading } = useHostEnv();
   const [copiedMainnet, setCopiedMainnet] = useState(false);
   const [copiedTestnet, setCopiedTestnet] = useState(false);
   const [ipcStatus, setIpcStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
@@ -35,6 +36,42 @@ export function BitcoinPrereqStep({ onNext, discoveredNodes, isDiscovering, onRe
   };
 
   useEffect(() => {
+    if (hostOsLoading) return;
+
+    const pNode = discoveredNodes.find(n => n.network === 'mainnet') ?? discoveredNodes[0];
+    const dCoreVersion = pNode ? rpcVersionToCoreVersion(pNode.version) : null;
+
+    if (hostOs) {
+      const mapped = mapHostOsToOperatingSystem(hostOs);
+      if (mapped) {
+        updateData({
+          bitcoin: {
+            core_version: null,
+            os: mapped,
+            network: pNode?.network ?? 'mainnet',
+            customDataDir: '',
+            socket_path: '',
+          },
+        });
+        return;
+      }
+    }
+
+    if (!data.bitcoin?.os && pNode) {
+      updateData({
+        bitcoin: {
+          core_version: dCoreVersion ?? null,
+          os: inferOsFromDataDir(pNode.dataDir),
+          network: pNode.network,
+          customDataDir: '',
+          socket_path: '',
+        },
+      });
+    }
+  }, [hostOs, hostOsLoading, discoveredNodes, data.bitcoin?.os, updateData]);
+
+  useEffect(() => {
+    if (hostOsLoading) return;
     if (ipcCompletedRef.current) return;
     if (isDiscovering) return;
 
@@ -50,9 +87,9 @@ export function BitcoinPrereqStep({ onNext, discoveredNodes, isDiscovering, onRe
       return;
     }
 
-    const os: OperatingSystem = node.dataDir.includes('Library/Application Support')
-      ? 'macos'
-      : 'linux';
+    const os: OperatingSystem = data.bitcoin?.os ?? (
+      node.dataDir.includes('Library/Application Support') ? 'macos' : 'linux'
+    );
     const socketPath = computeDefaultSocketPath(DEFAULT_BITCOIN_PATHS[os], node.network);
 
     setIpcStatus('checking');
@@ -98,7 +135,7 @@ export function BitcoinPrereqStep({ onNext, discoveredNodes, isDiscovering, onRe
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [discoveredNodes, isDiscovering, updateData, onAutoAdvance]);
+  }, [discoveredNodes, hostOsLoading, isDiscovering, updateData, onAutoAdvance, data.bitcoin?.os]);
 
   const mainnetCmd = 'bitcoin -m node -ipcbind=unix';
   const testnetCmd = 'bitcoin -m node -ipcbind=unix -testnet4';
@@ -290,8 +327,8 @@ export function BitcoinPrereqStep({ onNext, discoveredNodes, isDiscovering, onRe
             <span className="font-medium">{BITCOIN_MESSAGES.detectedHeading}</span>
             <p className="text-xs mt-1 opacity-80">
               {detectedCoreVersion !== null
-              ? `Network: ${primaryNode.network} • Version: ${detectedCoreVersion} • Synced`
-              : `Network: ${primaryNode.network} • Version: ${primaryNode.version} • Synced`}
+                ? `Network: ${primaryNode.network} • Version: ${detectedCoreVersion} • Synced`
+                : `Network: ${primaryNode.network} • Version: ${primaryNode.version} • Synced`}
             </p>
           </div>
         </div>
