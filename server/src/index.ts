@@ -38,7 +38,9 @@ const STATE_FILE = path.join(CONFIG_DIR, 'state.json');
 
 const AUTO_START_RETRY_INTERVAL_MS = 30_000;
 
-let isAutoStarting = false;
+type StackBusyReason = 'auto-start' | 'manual';
+
+let stackBusyReason: StackBusyReason | null = null;
 
 type SavedState = {
   configured: boolean;
@@ -125,8 +127,25 @@ function isStackRunning(
     : healthyOrStarting(containers.translator?.status);
 }
 
-function autoStartBusyResponse() {
-  return { success: false, error: 'Mining services are already starting. Please wait.' };
+function beginStackOperation(reason: StackBusyReason): boolean {
+  if (stackBusyReason) return false;
+  stackBusyReason = reason;
+  return true;
+}
+
+function finishStackOperation(reason: StackBusyReason): void {
+  if (stackBusyReason === reason) {
+    stackBusyReason = null;
+  }
+}
+
+function stackBusyResponse() {
+  return {
+    success: false,
+    error: stackBusyReason === 'auto-start'
+      ? 'Mining services are already starting. Please wait.'
+      : 'Mining services are busy. Please wait.',
+  };
 }
 
 /**
@@ -151,7 +170,7 @@ app.get('/api/status', async (_req, res) => {
     const response: StatusResponse = {
       configured: state.configured,
       running: isStackRunning(state.mode, containers),
-      autoStarting: isAutoStarting,
+      autoStarting: stackBusyReason === 'auto-start',
       shouldBeRunning: state.shouldBeRunning,
       miningMode: state.miningMode,
       mode: state.mode,
@@ -228,11 +247,11 @@ async function getBitcoinSocketStartupError(data: SetupData): Promise<string | n
  * PUT /api/config - Update configuration and restart with new values
  */
 app.put('/api/config', async (req, res) => {
-  try {
-    if (isAutoStarting) {
-      return res.status(409).json(autoStartBusyResponse());
-    }
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
 
+  try {
     const state = await loadState();
 
     if (!state.configured || !state.data) {
@@ -324,6 +343,8 @@ app.put('/api/config', async (req, res) => {
       error: error instanceof Error ? error.message : 'Failed to update config',
     };
     res.status(500).json(response);
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -383,11 +404,11 @@ app.get('/api/logs/raw', async (req, res) => {
  * POST /api/setup - Configure and start the stack
  */
 app.post('/api/setup', async (req, res) => {
-  try {
-    if (isAutoStarting) {
-      return res.status(409).json(autoStartBusyResponse());
-    }
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
 
+  try {
     const data = normalizeSetupData(req.body as SetupData);
     const requiresPool = !(data.miningMode === 'solo' && data.mode === 'jd');
 
@@ -470,6 +491,8 @@ app.post('/api/setup', async (req, res) => {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
     res.status(500).json(response);
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -477,19 +500,21 @@ app.post('/api/setup', async (req, res) => {
  * POST /api/stop - Stop the stack
  */
 app.post('/api/stop', async (_req, res) => {
-  try {
-    if (isAutoStarting) {
-      return res.status(409).json(autoStartBusyResponse());
-    }
-    await stopStack();
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
 
+  try {
     const state = await loadState();
     if (state.configured && state.data) await saveState(state.data, false);
 
+    await stopStack();
     res.json({ success: true });
   } catch (error) {
     console.error('Stop error:', error);
     res.status(500).json({ success: false, error: 'Failed to stop stack' });
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -497,11 +522,11 @@ app.post('/api/stop', async (_req, res) => {
  * POST /api/restart - Restart the stack
  */
 app.post('/api/restart', async (_req, res) => {
-  try {
-    if (isAutoStarting) {
-      return res.status(409).json(autoStartBusyResponse());
-    }
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
 
+  try {
     const state = await loadState();
     if (!state.configured || !state.data) {
       return res.status(400).json({ success: false, error: 'Not configured' });
@@ -528,6 +553,8 @@ app.post('/api/restart', async (_req, res) => {
   } catch (error) {
     console.error('Restart error:', error);
     res.status(500).json({ success: false, error: 'Failed to restart stack' });
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -535,11 +562,11 @@ app.post('/api/restart', async (_req, res) => {
  * POST /api/reset - Reset configuration (stop containers and delete config)
  */
 app.post('/api/reset', async (_req, res) => {
-  try {
-    if (isAutoStarting) {
-      return res.status(409).json(autoStartBusyResponse());
-    }
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
 
+  try {
     // Stop containers first
     await stopStack();
 
@@ -562,6 +589,8 @@ app.post('/api/reset', async (_req, res) => {
   } catch (error) {
     console.error('Reset error:', error);
     res.status(500).json({ success: false, error: 'Failed to reset configuration' });
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -626,9 +655,8 @@ app.get('*', (_req, res) => {
 });
 
 async function reconcileShouldBeRunning(): Promise<void> {
-  if (isAutoStarting) return;
+  if (!beginStackOperation('auto-start')) return;
 
-  isAutoStarting = true;
   try {
     const state = await loadState();
     if (!state.configured || !state.data || !state.shouldBeRunning) return;
@@ -657,7 +685,7 @@ async function reconcileShouldBeRunning(): Promise<void> {
   } catch (error) {
     console.error('Auto-start failed:', error);
   } finally {
-    isAutoStarting = false;
+    finishStackOperation('auto-start');
   }
 }
 
