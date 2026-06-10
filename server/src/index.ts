@@ -36,6 +36,20 @@ const PORT = process.env.PORT || 3001;
 const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, '../../data/config');
 const STATE_FILE = path.join(CONFIG_DIR, 'state.json');
 
+const AUTO_START_RETRY_INTERVAL_MS = 30_000;
+
+type StackBusyReason = 'auto-start' | 'manual';
+
+let stackBusyReason: StackBusyReason | null = null;
+
+type SavedState = {
+  configured: boolean;
+  miningMode: 'solo' | 'pool' | null;
+  mode: 'jd' | 'no-jd' | null;
+  data: SetupData | null;
+  shouldBeRunning: boolean;
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -51,25 +65,41 @@ app.use(express.static(UI_DIR));
 /**
  * Load saved state
  */
-async function loadState(): Promise<{ configured: boolean; miningMode: 'solo' | 'pool' | null; mode: 'jd' | 'no-jd' | null; data: SetupData | null }> {
+function getDefaultState(): SavedState {
+  return { configured: false, miningMode: null, mode: null, data: null, shouldBeRunning: false };
+}
+
+function normalizeSavedState(state: Partial<SavedState>): SavedState {
+  const configured = state.configured ?? false;
+  return {
+    configured,
+    miningMode: state.miningMode ?? null,
+    mode: state.mode ?? null,
+    data: state.data ?? null,
+    shouldBeRunning: state.shouldBeRunning ?? configured,
+  };
+}
+
+async function loadState(): Promise<SavedState> {
   try {
     const content = await fs.readFile(STATE_FILE, 'utf-8');
-    return JSON.parse(content);
+    return normalizeSavedState(JSON.parse(content) as Partial<SavedState>);
   } catch {
-    return { configured: false, miningMode: null, mode: null, data: null };
+    return getDefaultState();
   }
 }
 
 /**
  * Save state
  */
-async function saveState(data: SetupData): Promise<void> {
+async function saveState(data: SetupData, shouldBeRunning = true): Promise<void> {
   await fs.mkdir(CONFIG_DIR, { recursive: true });
   await fs.writeFile(STATE_FILE, JSON.stringify({
     configured: true,
     miningMode: data.miningMode,
     mode: data.mode,
     data,
+    shouldBeRunning,
   }, null, 2));
 }
 
@@ -83,6 +113,39 @@ function getBitcoinCoreVersionError(data: SetupData): string | null {
   }
 
   return null;
+}
+
+function isStackRunning(
+  mode: SavedState['mode'],
+  containers: StatusResponse['containers']
+): boolean {
+  const healthyOrStarting = (status: string | undefined) =>
+    status === 'healthy' || status === 'starting';
+
+  return mode === 'jd'
+    ? healthyOrStarting(containers.translator?.status) && healthyOrStarting(containers.jdc?.status)
+    : healthyOrStarting(containers.translator?.status);
+}
+
+function beginStackOperation(reason: StackBusyReason): boolean {
+  if (stackBusyReason) return false;
+  stackBusyReason = reason;
+  return true;
+}
+
+function finishStackOperation(reason: StackBusyReason): void {
+  if (stackBusyReason === reason) {
+    stackBusyReason = null;
+  }
+}
+
+function stackBusyResponse() {
+  return {
+    success: false,
+    error: stackBusyReason === 'auto-start'
+      ? 'Mining services are already starting. Please wait.'
+      : 'Mining services are busy. Please wait.',
+  };
 }
 
 /**
@@ -104,14 +167,11 @@ app.get('/api/status', async (_req, res) => {
     const state = await loadState();
     const containers = await getStackStatus(state.mode);
 
-    const running = state.mode === 'jd'
-      ? (containers.translator?.status === 'healthy' || containers.translator?.status === 'starting') &&
-      (containers.jdc?.status === 'healthy' || containers.jdc?.status === 'starting')
-      : (containers.translator?.status === 'healthy' || containers.translator?.status === 'starting');
-
     const response: StatusResponse = {
       configured: state.configured,
-      running,
+      running: isStackRunning(state.mode, containers),
+      autoStarting: stackBusyReason === 'auto-start',
+      shouldBeRunning: state.shouldBeRunning,
       miningMode: state.miningMode,
       mode: state.mode,
       poolName: state.data?.miningMode === 'solo' && state.data?.mode === 'jd'
@@ -148,7 +208,7 @@ app.get('/api/config', async (_req, res) => {
  * GET /api/env - Host environment variables relevant to the UI
  */
 app.get('/api/env', (_req, res) => {
-  res.json({ HOST_OS: process.env.HOST_OS || null });
+  res.json({ HOST_OS: process.env.HOST_OS || null, STRATUM_HOST: process.env.STRATUM_HOST || null });
 });
 
 /**
@@ -187,6 +247,10 @@ async function getBitcoinSocketStartupError(data: SetupData): Promise<string | n
  * PUT /api/config - Update configuration and restart with new values
  */
 app.put('/api/config', async (req, res) => {
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
+
   try {
     const state = await loadState();
 
@@ -279,6 +343,8 @@ app.put('/api/config', async (req, res) => {
       error: error instanceof Error ? error.message : 'Failed to update config',
     };
     res.status(500).json(response);
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -338,6 +404,10 @@ app.get('/api/logs/raw', async (req, res) => {
  * POST /api/setup - Configure and start the stack
  */
 app.post('/api/setup', async (req, res) => {
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
+
   try {
     const data = normalizeSetupData(req.body as SetupData);
     const requiresPool = !(data.miningMode === 'solo' && data.mode === 'jd');
@@ -421,6 +491,8 @@ app.post('/api/setup', async (req, res) => {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
     res.status(500).json(response);
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -428,12 +500,21 @@ app.post('/api/setup', async (req, res) => {
  * POST /api/stop - Stop the stack
  */
 app.post('/api/stop', async (_req, res) => {
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
+
   try {
+    const state = await loadState();
+    if (state.configured && state.data) await saveState(state.data, false);
+
     await stopStack();
     res.json({ success: true });
   } catch (error) {
     console.error('Stop error:', error);
     res.status(500).json({ success: false, error: 'Failed to stop stack' });
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -441,11 +522,17 @@ app.post('/api/stop', async (_req, res) => {
  * POST /api/restart - Restart the stack
  */
 app.post('/api/restart', async (_req, res) => {
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
+
   try {
     const state = await loadState();
     if (!state.configured || !state.data) {
       return res.status(400).json({ success: false, error: 'Not configured' });
     }
+
+    await saveState(state.data, true);
 
     const bitcoinCoreVersionError = getBitcoinCoreVersionError(state.data);
     if (bitcoinCoreVersionError) {
@@ -466,6 +553,8 @@ app.post('/api/restart', async (_req, res) => {
   } catch (error) {
     console.error('Restart error:', error);
     res.status(500).json({ success: false, error: 'Failed to restart stack' });
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -473,6 +562,10 @@ app.post('/api/restart', async (_req, res) => {
  * POST /api/reset - Reset configuration (stop containers and delete config)
  */
 app.post('/api/reset', async (_req, res) => {
+  if (!beginStackOperation('manual')) {
+    return res.status(409).json(stackBusyResponse());
+  }
+
   try {
     // Stop containers first
     await stopStack();
@@ -496,6 +589,8 @@ app.post('/api/reset', async (_req, res) => {
   } catch (error) {
     console.error('Reset error:', error);
     res.status(500).json({ success: false, error: 'Failed to reset configuration' });
+  } finally {
+    finishStackOperation('manual');
   }
 });
 
@@ -559,6 +654,41 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(UI_DIR, 'index.html'));
 });
 
+async function reconcileShouldBeRunning(): Promise<void> {
+  if (!beginStackOperation('auto-start')) return;
+
+  try {
+    const state = await loadState();
+    if (!state.configured || !state.data || !state.shouldBeRunning) return;
+
+    const containers = await getStackStatus(state.mode);
+    if (isStackRunning(state.mode, containers)) return;
+
+    console.log('Auto-start: shouldBeRunning=true and stack is stopped. Starting containers...');
+
+    const versionError = getBitcoinCoreVersionError(state.data);
+    if (versionError) {
+      console.error('Auto-start blocked:', versionError);
+      return;
+    }
+
+    if (state.data.mode === 'jd') {
+      const socketError = await getBitcoinSocketStartupError(state.data);
+      if (socketError) {
+        console.error('Auto-start blocked:', socketError);
+        return;
+      }
+    }
+
+    await startStack(state.data, CONFIG_DIR);
+    console.log('Auto-start: containers started successfully');
+  } catch (error) {
+    console.error('Auto-start failed:', error);
+  } finally {
+    finishStackOperation('auto-start');
+  }
+}
+
 // Start server
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -580,6 +710,12 @@ app.listen(PORT, () => {
     console.log('└─────────────────────────────────────────────────────┘');
     console.log('');
   }
+
+  // Keep configured mining services running across app/system restarts.
+  void reconcileShouldBeRunning();
+  setInterval(() => {
+    void reconcileShouldBeRunning();
+  }, AUTO_START_RETRY_INTERVAL_MS);
 });
 
 // Graceful shutdown: stop mining containers when sv2-ui exits

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { TRANSLATOR_PORT, JDC_PORT, JDC_AUTHORITY_PUBLIC_KEY } from '@/lib/ports';
+import { useHostEnv } from '@/hooks/useHostEnv';
 
 function CopyableAddress({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
@@ -31,8 +32,10 @@ interface MinerConnectionInfoProps {
 }
 
 export function MinerConnectionInfo({ isJdMode, centered = false }: MinerConnectionInfoProps) {
-  const translatorUrl = `stratum+tcp://<your-machine-ip>:${TRANSLATOR_PORT}`;
-  const jdcUrl = `stratum2+tcp://<your-machine-ip>:${JDC_PORT}/${JDC_AUTHORITY_PUBLIC_KEY}`;
+  const { stratumHost } = useHostEnv();
+  const host = stratumHost ?? '<your-machine-ip>';
+  const translatorUrl = `stratum+tcp://${host}:${TRANSLATOR_PORT}`;
+  const jdcUrl = `stratum2+tcp://${host}:${JDC_PORT}/${JDC_AUTHORITY_PUBLIC_KEY}`;
 
   const hint = (
     <p className="text-xs text-muted-foreground">
@@ -54,7 +57,7 @@ export function MinerConnectionInfo({ isJdMode, centered = false }: MinerConnect
         <div className="font-semibold text-sm">SV1 Firmware</div>
         <div className="text-xs text-muted-foreground">Point to the Translator Proxy</div>
         <CopyableAddress address={translatorUrl} />
-        {hint}
+        {!stratumHost && hint}
       </div>
 
       {isJdMode && (
@@ -62,7 +65,7 @@ export function MinerConnectionInfo({ isJdMode, centered = false }: MinerConnect
           <div className="font-semibold text-sm">SV2 Firmware</div>
           <div className="text-xs text-muted-foreground">Point directly to the JD Client</div>
           <CopyableAddress address={jdcUrl} />
-          {hint}
+          {!stratumHost && hint}
         </div>
       )}
     </div>

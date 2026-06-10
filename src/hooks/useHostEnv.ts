@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 
 interface HostEnv {
   HOST_OS: string | null;
+  STRATUM_HOST: string | null;
 }
 
 export function useHostEnv() {
   const [hostOs, setHostOs] = useState<string | null>(null);
+  const [stratumHost, setStratumHost] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -15,6 +17,7 @@ export function useHostEnv() {
       .then(data => {
         if (!cancelled) {
           setHostOs(data.HOST_OS);
+          setStratumHost(data.STRATUM_HOST);
           setIsLoading(false);
         }
       })
@@ -26,5 +29,5 @@ export function useHostEnv() {
     return () => { cancelled = true; };
   }, []);
 
-  return { hostOs, isLoading };
+  return { hostOs, stratumHost, isLoading };
 }
