@@ -3,24 +3,80 @@ import { Copy, Check } from 'lucide-react';
 import { TRANSLATOR_PORT, JDC_PORT, JDC_AUTHORITY_PUBLIC_KEY } from '@/lib/ports';
 import { useHostEnv } from '@/hooks/useHostEnv';
 
-function CopyableAddress({ address }: { address: string }) {
-  const [copied, setCopied] = useState(false);
+function copyWithSelectionFallback(text: string): boolean {
+  const textArea = document.createElement('textarea');
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  textArea.value = text;
+  textArea.setAttribute('readonly', 'true');
+  textArea.style.position = 'fixed';
+  textArea.style.top = '0';
+  textArea.style.left = '0';
+  textArea.style.opacity = '0';
+
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  textArea.setSelectionRange(0, text.length);
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textArea.remove();
+  }
+}
+
+function CopyableAddress({ address }: { address: string }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  const handleCopy = async () => {
+    let copied = false;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(address);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+
+    if (!copied) {
+      copied = copyWithSelectionFallback(address);
+    }
+
+    setCopyState(copied ? 'copied' : 'failed');
+    setTimeout(() => setCopyState('idle'), 2000);
   };
 
+  const copyLabel = copyState === 'copied'
+    ? 'Copied'
+    : copyState === 'failed'
+      ? 'Copy failed'
+      : 'Copy to clipboard';
+
   return (
-    <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-2 font-mono text-sm">
-      <span className="flex-1 truncate">{address}</span>
+    <div className="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm">
+      <code className="min-w-0 flex-1 select-all break-all font-mono leading-relaxed text-foreground">
+        {address}
+      </code>
       <button
+        type="button"
         onClick={handleCopy}
-        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-        title="Copy to clipboard"
+        className="mt-0.5 flex-shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        title={copyLabel}
+        aria-label={copyLabel}
+        aria-live="polite"
       >
-        {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+        {copyState === 'copied' ? (
+          <Check className="h-4 w-4 text-green-500" aria-hidden="true" />
+        ) : (
+          <Copy
+            className={`h-4 w-4${copyState === 'failed' ? ' text-destructive' : ''}`}
+            aria-hidden="true"
+          />
+        )}
       </button>
     </div>
   );
