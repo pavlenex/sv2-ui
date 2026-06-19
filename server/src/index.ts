@@ -689,9 +689,6 @@ async function reconcileShouldBeRunning(): Promise<void> {
   }
 }
 
-// Start server
-const isProduction = process.env.NODE_ENV === 'production';
-
 app.listen(PORT, () => {
   const dockerConnection = getDockerConnectionInfo();
 
@@ -699,7 +696,7 @@ app.listen(PORT, () => {
   console.log(`Config directory: ${CONFIG_DIR}`);
   console.log(`Docker: ${dockerConnection.endpoint} (${dockerConnection.source})`);
 
-  if (isProduction) {
+  if (process.env.NODE_ENV === 'production') {
     console.log('');
     console.log('┌─────────────────────────────────────────────────────┐');
     console.log('│                                                     │');
