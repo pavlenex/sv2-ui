@@ -17,7 +17,13 @@ import {
 } from '@/lib/utils';
 import { isBitcoinSocketError } from '@/lib/bitcoinSocketErrors';
 import type { SetupData } from '@/components/setup/types';
-import { DEFAULT_SHARES_PER_MINUTE, DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE, DEFAULT_POOL_PORT } from '@sv2-ui/shared';
+import {
+  DEFAULT_SHARES_PER_MINUTE,
+  DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+  DEFAULT_POOL_PORT,
+  formatBitcoinCoreVersion,
+  normalizeBitcoinCoreVersion,
+} from '@sv2-ui/shared';
 import {
   Loader2,
   AlertCircle,
@@ -336,6 +342,7 @@ export function ConfigurationTab() {
   const isJdMode = activeMode === 'jd';
   const isSoloMode = activeMiningMode === 'solo';
   const isSovereignSolo = isSoloMode && isJdMode;
+  const bitcoinCoreVersion = normalizeBitcoinCoreVersion(config.bitcoin?.core_version);
   const templateModeLabel = isSoloMode
     ? isJdMode
       ? 'Sovereign Solo Mining'
@@ -852,7 +859,9 @@ export function ConfigurationTab() {
             <div className="p-4 rounded-lg border border-border/50 bg-muted/20 space-y-2">
               <div className="flex items-center gap-2">
                 <p className="font-medium">Bitcoin Core</p>
-                <Badge variant="outline" className="text-xs">{config.bitcoin.core_version ?? 'Not selected'}</Badge>
+                <Badge variant="outline" className="text-xs">
+                  {bitcoinCoreVersion ? formatBitcoinCoreVersion(bitcoinCoreVersion) : 'Not selected'}
+                </Badge>
                 <Badge variant="outline" className="text-xs">{config.bitcoin.network}</Badge>
               </div>
               <p className="text-muted-foreground font-mono text-xs truncate">

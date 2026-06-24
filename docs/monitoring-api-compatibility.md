@@ -1,28 +1,23 @@
-# Monitoring API Compatibility
+# Monitoring API Contract
 
 `sv2-ui` consumes monitoring APIs exposed by `sv2-apps` containers, currently JD Client (JDC) and Translator Proxy (tProxy).
 
-These APIs may still be considered unstable on the `sv2-apps` side. Because of that, `sv2-ui` must not assume that every supported `sv2-apps` image exposes the same raw monitoring schema.
+These APIs may still evolve on the `sv2-apps` side. Because of that, `sv2-ui` should treat the backend-facing monitoring API as an integration contract and keep the React frontend insulated from raw response-shape churn.
 
-This matters especially in JD mode because `sv2-ui` may intentionally run older JDC/tProxy images when users are running older Bitcoin Core versions. For example, a user on Bitcoin Core 30.2 may require an older JDC image, while a user on Bitcoin Core 31.0 may require a newer one. Both setups may need to be supported by the same `sv2-ui` release.
+## Contract Boundaries
 
-No-JD Translator-only stacks use the default Translator image unless a separate compatibility need is introduced.
+`sv2-ui` should keep monitoring assumptions explicit at the boundary where it calls JDC and Translator Proxy.
 
-## Compatibility Profiles
+When a monitoring endpoint is used, capture:
 
-`sv2-ui` should select JD-mode `sv2-apps` image versions through runtime compatibility profiles.
-
-Each profile should describe:
-
-- supported Bitcoin Core version/range
-- JDC image tag
-- Translator Proxy image tag
-- expected monitoring API contract for each app
-- optional monitoring features available for that image set
+- endpoint path
+- response fields consumed by the UI
+- backend normalization needed before data reaches React
+- optional fields or features that may be absent
 
 ## Handling API Changes
 
-When `sv2-apps` changes a monitoring API, `sv2-ui` should classify the change before updating the dashboard.
+When `sv2-apps` changes a monitoring API, `sv2-ui` should classify the API change before updating the dashboard.
 
 ### Backward-Compatible Additions
 
@@ -50,17 +45,17 @@ Examples:
 
 Action in `sv2-ui`:
 
-- update the compatibility profile for the affected image
+- update the integration contract for the affected endpoint
 - add or update backend normalization if the frontend needs a stable shape
-- add fixture tests using payloads from the affected image versions
+- add fixture tests using representative upstream payloads
 
 ## Frontend Rule
 
-The React frontend should avoid depending on version-specific raw JDC/tProxy response shapes when multiple supported images differ.
+The React frontend should avoid depending directly on raw JDC/tProxy response shapes.
 
 If a raw API difference affects data already shown by the dashboard, normalize it in the `sv2-ui` backend or shared monitoring layer first.
 
-If a future image exposes new monitoring data that older images do not have, treat it as an optional feature and render it only for compatible profiles.
+If a future monitoring API exposes new data, treat it as an optional feature unless the setup flow requires it.
 
 ## API Type Generation
 
@@ -80,4 +75,3 @@ npm run generate:types
 ```
 
 Regenerate after updating `shared/openapi.json` from upstream.
-

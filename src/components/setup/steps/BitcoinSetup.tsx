@@ -4,6 +4,9 @@ import {
   SUPPORTED_BITCOIN_CORE_VERSIONS,
   computeDefaultSocketPath,
   rpcVersionToCoreVersion,
+  rpcVersionToDisplayVersion,
+  normalizeBitcoinCoreVersion,
+  formatBitcoinCoreVersion,
   inferOsFromDataDir,
 } from '@sv2-ui/shared';
 import type { BitcoinCoreVersion, OperatingSystem, BitcoinNetwork } from '@sv2-ui/shared';
@@ -21,7 +24,9 @@ interface BitcoinSetupProps extends StepProps {
 }
 
 export function BitcoinSetup({ data, updateData, onNext, notice, onDismissNotice, discoveredNodes }: BitcoinSetupProps) {
-  const [coreVersion, setCoreVersion] = useState<BitcoinCoreVersion | null>(data.bitcoin?.core_version ?? null);
+  const [coreVersion, setCoreVersion] = useState<BitcoinCoreVersion | null>(
+    normalizeBitcoinCoreVersion(data.bitcoin?.core_version)
+  );
   const [os, setOs] = useState<OperatingSystem>(data.bitcoin?.os || 'linux');
   const [network, setNetwork] = useState<BitcoinNetwork>(data.bitcoin?.network || 'mainnet');
   const [customDataDir, setCustomDataDir] = useState(data.bitcoin?.customDataDir || '');
@@ -33,6 +38,13 @@ export function BitcoinSetup({ data, updateData, onNext, notice, onDismissNotice
   const dataDir = customDataDir.trim() || DEFAULT_BITCOIN_PATHS[os];
   const computedSocketPath = computeDefaultSocketPath(dataDir, network);
   const socketPath = manualSocketPath || computedSocketPath;
+  const detectedRpcVersion = discoveredNodes?.find(n => n.network === network)?.version ?? discoveredNodes?.[0]?.version;
+  const detectedVersion = detectedRpcVersion ? rpcVersionToCoreVersion(detectedRpcVersion) : null;
+  const detectedVersionLabel = detectedVersion
+    ? formatBitcoinCoreVersion(detectedVersion)
+    : detectedRpcVersion
+      ? rpcVersionToDisplayVersion(detectedRpcVersion)
+      : 'Unknown';
 
   useEffect(() => {
     if (discoveredNodes && discoveredNodes.length > 0 && !discoveryApplied) {
@@ -102,7 +114,7 @@ export function BitcoinSetup({ data, updateData, onNext, notice, onDismissNotice
           <div>
             <span className="font-medium">Pre-filled from detected node</span>
             <p className="text-xs mt-1 opacity-80">
-              Network: {network} • Version: {rpcVersionToCoreVersion(discoveredNodes?.find(n => n.network === network)?.version ?? discoveredNodes?.[0]?.version ?? 0) ?? 'Unknown'}
+              Network: {network} • Version: {detectedVersionLabel}
             </p>
           </div>
         </div>
@@ -192,7 +204,7 @@ export function BitcoinSetup({ data, updateData, onNext, notice, onDismissNotice
           <option value="" disabled>{BITCOIN_MESSAGES.selectPlaceholder}</option>
           {SUPPORTED_BITCOIN_CORE_VERSIONS.map((version) => (
             <option key={version} value={version}>
-              Bitcoin Core {version}
+              Bitcoin Core {formatBitcoinCoreVersion(version)}
             </option>
           ))}
         </select>

@@ -161,20 +161,17 @@ sv2-ui/
 
 ## Docker Images Used
 
-`sv2-ui` uses `stratumv2/translator_sv2:main` for no-JD stacks on development branches. JD stacks select JDC and Translator Proxy images from the Bitcoin Core compatibility table.
+`sv2-ui` uses `stratumv2/translator_sv2:main` for no-JD stacks on development branches. JD stacks use `stratumv2/jd_client_sv2:main` and `stratumv2/translator_sv2:main`.
 
-Release branches should pin all sv2-apps image tags in `server/src/compatibility.ts` before publishing.
+Release branches should pin all sv2-apps image tags in `shared/src/images.ts` before publishing.
 
-## Bitcoin Core Compatibility
+## Bitcoin Core IPC Support
 
-| Bitcoin Core | JDC image | Translator Proxy image | Status | Reference |
-|--------------|-----------|------------------------|--------|-----------|
-| 30.2 | `stratumv2/jd_client_sv2:v0.3.5` | `stratumv2/translator_sv2:v0.3.5` | Supported | [`release/v0.1.4`](https://github.com/stratum-mining/sv2-ui/tree/release/v0.1.4) |
-| 31.0 | `stratumv2/jd_client_sv2:main` | `stratumv2/translator_sv2:main` | Supported using development images | Release branches pin matching sv2-apps release tags |
+JD mode supports Bitcoin Core 30.x and 31.x over IPC. During setup, `sv2-ui` stores `30` for Bitcoin Core 30.x or `31` for Bitcoin Core 31.x and writes that value to the generated JDC config.
 
-## Compatibility Notes
+## Monitoring API Notes
 
-- [Monitoring API compatibility](docs/monitoring-api-compatibility.md) - How `sv2-ui` should handle monitoring API changes across supported JDC and Translator Proxy image sets.
+- [Monitoring API contract](docs/monitoring-api-compatibility.md) - How `sv2-ui` should handle JDC and Translator Proxy monitoring API changes.
 
 ## Ports
 

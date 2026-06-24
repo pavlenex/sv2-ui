@@ -10,6 +10,8 @@ import {
   shouldAggregateTranslatorChannels,
   DEFAULT_SHARES_PER_MINUTE,
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+  bitcoinCoreVersionToIpcMajor,
+  formatSupportedVersions,
 } from '@sv2-ui/shared';
 import type { SetupData } from './types.js';
 
@@ -22,13 +24,6 @@ function positiveNumber(value: number | undefined, fallback: number): number {
 function positiveInteger(value: number | undefined, fallback: number): number {
   const normalized = positiveNumber(value, fallback);
   return Math.max(1, Math.trunc(normalized));
-}
-
-function isNewUpstreamFormat(data: SetupData): boolean {
-  // no-jd mode always uses :main images, new format (user_identity inside [[upstreams]])
-  if (data.mode !== 'jd') return true;
-  // jd mode: 31.0+ uses :main images,  new format; 30.2 uses :v0.3.5 → old (top-level user_identity)
-  return data.bitcoin?.core_version !== '30.2';
 }
 
 export function normalizeSetupData(data: SetupData): SetupData {
@@ -73,8 +68,6 @@ export function generateTranslatorConfig(data: SetupData): string {
     ? JDC_AUTHORITY_PUBLIC_KEY
     : pool!.authority_public_key;
 
-  const useNewFormat = isNewUpstreamFormat(normalizedData);
-
   // Min hashrate from user config (default 100 TH/s if not set)
   const minHashrate = translator.min_hashrate ? `${translator.min_hashrate}.0` : '100_000_000_000_000.0';
   // Shares per minute target
@@ -100,10 +93,7 @@ min_supported_version = 2
 # Extranonce2 size for downstream connections
 downstream_extranonce2_size = ${downstreamExtranonce2Size}
 
-${useNewFormat ? '' : `# User identity/username for the upstream connection
-${userIdentityLine}
-
-`}# Aggregate channels: if true, all miners share one upstream channel
+# Aggregate channels: if true, all miners share one upstream channel
 aggregate_channels = ${translator.aggregate_channels}
 
 # Protocol extensions configuration
@@ -125,7 +115,7 @@ job_keepalive_interval_secs = 60
 address = "${upstreamAddress}"
 port = ${upstreamPort}
 authority_pubkey = "${authorityPubkey}"
-${useNewFormat ? userIdentityLine : ''}
+${userIdentityLine}
 `;
 }
 
@@ -138,7 +128,11 @@ export function generateJdcConfig(data: SetupData): string | null {
   }
 
   const { pool, jdc, bitcoin } = data;
-  const useNewFormat = isNewUpstreamFormat(data);
+  const bitcoinCoreIpcVersion = bitcoinCoreVersionToIpcMajor(bitcoin.core_version);
+  if (!bitcoinCoreIpcVersion) {
+    throw new Error(`Bitcoin Core IPC version ${formatSupportedVersions()} is required`);
+  }
+
   const isSovereignSolo = data.miningMode === 'solo';
   const jdcSignature = isSovereignSolo ? (jdc.jdc_signature || jdc.user_identity) : jdc.jdc_signature;
 
@@ -160,7 +154,7 @@ pool_address = "${pool.address}"
 pool_port = ${pool.port}
 jds_address = "${pool.address}"
 jds_port = 3334
-${useNewFormat ? userIdentityLine : ''}
+${userIdentityLine}
 
 `
     : `# No upstreams needed in solo mining mode.
@@ -182,10 +176,7 @@ authority_public_key = "${JDC_AUTHORITY_PUBLIC_KEY}"
 authority_secret_key = "mkDLTBBRxdBv998612qipDYoTK3YUrqLe8uWw7gu3iXbSrn2n"
 cert_validity_sec = 3600
 
-${useNewFormat ? '' : `# User identity/username for the upstream connection
-${userIdentityLine}
-
-`}# Shares configuration
+# Shares configuration
 shares_per_minute = ${sharesPerMinute}
 share_batch_size = ${shareBatchSize}
 
@@ -208,6 +199,7 @@ monitoring_cache_refresh_secs = 15
 
 ${upstreamsConfig}# Bitcoin Core IPC config
 [template_provider_type.BitcoinCoreIpc]
+version = ${bitcoinCoreIpcVersion}
 network = "${bitcoin.network}"
 fee_threshold = ${feeThreshold}
 min_interval = ${minInterval}

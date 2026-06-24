@@ -16,7 +16,7 @@ import {
 } from '@sv2-ui/shared';
 import type { SetupData, ContainerStatus } from './types.js';
 import type { ContainerLogLine, LogContainerRole, LogOutputStream } from './logs/types.js';
-import { getImageSelectionForSetup } from './compatibility.js';
+import { getImageSelectionForSetup } from '@sv2-ui/shared';
 import { bitcoinSocketValidatorScript } from './bitcoin-socket-validator.js';
 import { bitcoinSocketExistsScript } from './bitcoin-socket-exists.js';
 import { bitcoinRpcValidatorScript } from './bitcoin-rpc-validator.js';
@@ -861,9 +861,7 @@ export async function startStack(
   const imageSelection = getImageSelectionForSetup(data);
 
   if (imageSelection.mode === 'jd') {
-    console.log(
-      `Using compatibility profile ${imageSelection.profile.id} for Bitcoin Core ${imageSelection.profile.bitcoinCoreVersion}`
-    );
+    console.log(`Using JDC image ${imageSelection.jdc} and Translator image ${imageSelection.translator}`);
   } else {
     console.log(`Using Translator image ${imageSelection.translator} for no-JD mode`);
   }

@@ -12,7 +12,12 @@ import { fileURLToPath } from 'url';
 
 import type { SetupData, StatusResponse, SetupResponse } from './types.js';
 import { generateTranslatorConfig, generateJdcConfig, normalizeSetupData } from './config-generator.js';
-import { isSupportedBitcoinCoreVersion, TRANSLATOR_MONITORING_PORT, JDC_MONITORING_PORT } from '@sv2-ui/shared';
+import {
+  isSupportedBitcoinCoreVersion,
+  normalizeBitcoinCoreVersion,
+  TRANSLATOR_MONITORING_PORT,
+  JDC_MONITORING_PORT,
+} from '@sv2-ui/shared';
 import { BITCOIN_ERROR_MESSAGES } from './messages.js';
 import {
   startStack,
@@ -75,8 +80,22 @@ function normalizeSavedState(state: Partial<SavedState>): SavedState {
     configured,
     miningMode: state.miningMode ?? null,
     mode: state.mode ?? null,
-    data: state.data ?? null,
+    data: normalizeSetupBitcoinCoreVersion(state.data ?? null),
     shouldBeRunning: state.shouldBeRunning ?? configured,
+  };
+}
+
+function normalizeSetupBitcoinCoreVersion(data: SetupData | null): SetupData | null {
+  if (!data?.bitcoin) {
+    return data;
+  }
+
+  return {
+    ...data,
+    bitcoin: {
+      ...data.bitcoin,
+      core_version: normalizeBitcoinCoreVersion(data.bitcoin.core_version),
+    },
   };
 }
 
@@ -93,12 +112,13 @@ async function loadState(): Promise<SavedState> {
  * Save state
  */
 async function saveState(data: SetupData, shouldBeRunning = true): Promise<void> {
+  const normalizedData = normalizeSetupBitcoinCoreVersion(data) ?? data;
   await fs.mkdir(CONFIG_DIR, { recursive: true });
   await fs.writeFile(STATE_FILE, JSON.stringify({
     configured: true,
-    miningMode: data.miningMode,
-    mode: data.mode,
-    data,
+    miningMode: normalizedData.miningMode,
+    mode: normalizedData.mode,
+    data: normalizedData,
     shouldBeRunning,
   }, null, 2));
 }

@@ -6,6 +6,7 @@ import { MinerConnectionInfo } from "../MinerConnectionInfo";
 import { shouldAggregateTranslatorChannels } from "../poolRules";
 import { isBitcoinSocketError } from "@/lib/bitcoinSocketErrors";
 import { formatHashrate } from "@/lib/utils";
+import { formatBitcoinCoreVersion, normalizeBitcoinCoreVersion } from "@sv2-ui/shared";
 
 interface ReviewStartProps extends StepProps {
   onComplete: () => void;
@@ -41,6 +42,7 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
   const showBlockTemplates = data.mode !== null;
   const showPoolSection = Boolean(data.pool) && !isSovereignSolo;
   const showBitcoinSection = isJdMode && Boolean(data.bitcoin);
+  const bitcoinCoreVersion = normalizeBitcoinCoreVersion(data.bitcoin?.core_version);
   const templateModeLabel = isSoloMode
     ? isJdMode
       ? "Sovereign Solo Mining"
@@ -264,7 +266,7 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
           <div className="p-5 border-x border-b border-border bg-card">
             <SectionLabel n={nextSection()} label="Bitcoin Core" />
             <div className="text-sm text-muted-foreground space-y-1 pl-7">
-              <div>Bitcoin Core {data.bitcoin.core_version ?? "Not selected"}</div>
+              <div>Bitcoin Core {bitcoinCoreVersion ? formatBitcoinCoreVersion(bitcoinCoreVersion) : "Not selected"}</div>
               <div>{data.bitcoin.network}</div>
               <div className="font-mono text-xs truncate">
                 {data.bitcoin.socket_path}

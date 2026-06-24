@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { generateJdcConfig, generateTranslatorConfig, normalizeSetupData } from './config-generator.js';
 import type { SetupData } from './types.js';
 
-const BASE_DATA_30_2: SetupData = {
+const BASE_DATA_30: SetupData = {
   miningMode: 'pool',
   mode: 'jd',
   pool: {
@@ -13,7 +13,7 @@ const BASE_DATA_30_2: SetupData = {
     authority_public_key: 'authority-key',
   },
   bitcoin: {
-    core_version: '30.2',
+    core_version: '30',
     network: 'testnet4',
     os: 'linux',
     customDataDir: '',
@@ -34,13 +34,13 @@ const BASE_DATA_30_2: SetupData = {
   },
 };
 
-const BASE_DATA_31_0: SetupData = {
-  ...BASE_DATA_30_2,
-  bitcoin: { ...BASE_DATA_30_2.bitcoin!, core_version: '31.0' },
+const BASE_DATA_31: SetupData = {
+  ...BASE_DATA_30,
+  bitcoin: { ...BASE_DATA_30.bitcoin!, core_version: '31' },
 };
 
-const BASE_DATA_31_0_SOLO: SetupData = {
-  ...BASE_DATA_31_0,
+const BASE_DATA_31_SOLO: SetupData = {
+  ...BASE_DATA_31,
   miningMode: 'solo',
   pool: null,
 };
@@ -67,14 +67,14 @@ const NO_JD_DATA: SetupData = {
 };
 
 test('translator config uses advanced setup values', () => {
-  const config = generateTranslatorConfig(BASE_DATA_30_2);
+  const config = generateTranslatorConfig(BASE_DATA_30);
 
   assert.match(config, /downstream_extranonce2_size = 8/);
   assert.match(config, /shares_per_minute = 12\.5/);
 });
 
 test('jdc config uses shared shares-per-minute and miner signature', () => {
-  const config = generateJdcConfig(BASE_DATA_30_2);
+  const config = generateJdcConfig(BASE_DATA_30);
 
   assert.ok(config);
   assert.match(config, /shares_per_minute = 12\.5/);
@@ -83,9 +83,9 @@ test('jdc config uses shared shares-per-minute and miner signature', () => {
 
 test('normalization backfills advanced defaults for old saved configs', () => {
   const data = {
-    ...BASE_DATA_30_2,
+    ...BASE_DATA_30,
     translator: {
-      ...BASE_DATA_30_2.translator,
+      ...BASE_DATA_30.translator,
       shares_per_minute: undefined,
       downstream_extranonce2_size: undefined,
     },
@@ -98,43 +98,52 @@ test('normalization backfills advanced defaults for old saved configs', () => {
   assert.equal(normalized.translator.downstream_extranonce2_size, 4);
 });
 
-test('old format (v0.3.5): translator puts user_identity at top level, not inside [[upstreams]]', () => {
-  const config = generateTranslatorConfig(BASE_DATA_30_2);
-
-  assert.match(config, /^user_identity = "miner\.worker1"/m);
-  assert.doesNotMatch(config, /\[\[upstreams\]\][\s\S]*user_identity = "miner\.worker1"/);
-});
-
-test('old format (v0.3.5): jdc puts user_identity at top level, not inside [[upstreams]]', () => {
-  const config = generateJdcConfig(BASE_DATA_30_2);
-
-  assert.ok(config);
-  assert.match(config, /^user_identity = "miner\.worker1"/m);
-  assert.doesNotMatch(config, /\[\[upstreams\]\][\s\S]*user_identity = "miner\.worker1"/);
-});
-
-test('new format (main): translator puts user_identity inside [[upstreams]], not at top level', () => {
-  const config = generateTranslatorConfig(BASE_DATA_31_0);
+test('translator puts user_identity inside [[upstreams]] for JD mode', () => {
+  const config = generateTranslatorConfig(BASE_DATA_30);
   const upstreamIdx = config.indexOf('[[upstreams]]');
   const identityIdx = config.indexOf('user_identity');
 
   assert.ok(identityIdx > upstreamIdx);
+  assert.equal(config.slice(0, upstreamIdx).includes('user_identity'), false);
   assert.match(config, /\[\[upstreams\]\][\s\S]*user_identity = "miner\.worker1"/);
 });
 
-test('new format (main): jdc in pool mode puts user_identity inside [[upstreams]], not at top level', () => {
-  const config = generateJdcConfig(BASE_DATA_31_0);
+test('jdc in pool mode puts user_identity inside [[upstreams]]', () => {
+  const config = generateJdcConfig(BASE_DATA_30);
 
   assert.ok(config);
   const upstreamIdx = config.indexOf('[[upstreams]]');
   const identityIdx = config.indexOf('user_identity');
 
   assert.ok(identityIdx > upstreamIdx);
+  assert.equal(config.slice(0, upstreamIdx).includes('user_identity'), false);
   assert.match(config, /\[\[upstreams\]\][\s\S]*user_identity = "miner\.worker1"/);
 });
 
-test('new format (main): jdc in solo mode omits user_identity entirely', () => {
-  const config = generateJdcConfig(BASE_DATA_31_0_SOLO);
+test('jdc config writes Bitcoin Core IPC version', () => {
+  const config30 = generateJdcConfig(BASE_DATA_30);
+  const config31 = generateJdcConfig(BASE_DATA_31);
+
+  assert.ok(config30);
+  assert.ok(config31);
+  assert.match(config30, /\[template_provider_type\.BitcoinCoreIpc\]\nversion = 30/);
+  assert.match(config31, /\[template_provider_type\.BitcoinCoreIpc\]\nversion = 31/);
+});
+
+test('jdc config maps legacy Bitcoin Core point versions to IPC majors', () => {
+  const legacyData = {
+    ...BASE_DATA_31,
+    bitcoin: { ...BASE_DATA_31.bitcoin!, core_version: '31.0' },
+  } as unknown as SetupData;
+
+  const config = generateJdcConfig(legacyData);
+
+  assert.ok(config);
+  assert.match(config, /\[template_provider_type\.BitcoinCoreIpc\]\nversion = 31/);
+});
+
+test('jdc in solo mode omits user_identity entirely', () => {
+  const config = generateJdcConfig(BASE_DATA_31_SOLO);
 
   assert.ok(config);
   assert.doesNotMatch(config, /user_identity/);

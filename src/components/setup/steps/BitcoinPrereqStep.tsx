@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { rpcVersionToCoreVersion, DEFAULT_BITCOIN_PATHS, computeDefaultSocketPath, type OperatingSystem, inferOsFromDataDir, mapHostOsToOperatingSystem } from '@sv2-ui/shared';
+import {
+  rpcVersionToCoreVersion,
+  rpcVersionToDisplayVersion,
+  formatBitcoinCoreVersion,
+  DEFAULT_BITCOIN_PATHS,
+  computeDefaultSocketPath,
+  type OperatingSystem,
+  inferOsFromDataDir,
+  mapHostOsToOperatingSystem,
+} from '@sv2-ui/shared';
 import { BITCOIN_MESSAGES } from '@/lib/messages';
 import { StepProps, BitcoinConfig } from '../types';
 import { Copy, Check, ExternalLink, Loader2, RotateCw, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -288,7 +297,7 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
           <div className="text-left">
             <span className="font-medium">{BITCOIN_MESSAGES.unsupportedHeading}</span>
             <p className="text-xs mt-1 opacity-80">
-              {BITCOIN_MESSAGES.unsupportedDetected(String(rpcVersionToCoreVersion(primaryNode.version)))}
+              {BITCOIN_MESSAGES.unsupportedDetected(rpcVersionToDisplayVersion(primaryNode.version))}
             </p>
             <p className="text-xs mt-2">
               {BITCOIN_MESSAGES.upgradeNode}
@@ -307,7 +316,7 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
           <div className="text-left">
             <span className="font-medium">{BITCOIN_MESSAGES.syncingHeading}</span>
             <p className="text-xs mt-1 opacity-80">
-              Network: {primaryNode.network} • Version: {detectedCoreVersion ?? primaryNode.version} • Syncing...
+              Network: {primaryNode.network} • Version: {detectedCoreVersion ? formatBitcoinCoreVersion(detectedCoreVersion) : rpcVersionToDisplayVersion(primaryNode.version)} • Syncing...
             </p>
             <p className="text-xs mt-2">
               Your node is still downloading the blockchain. Please wait for the initial block download to finish before continuing.
@@ -327,8 +336,8 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
             <span className="font-medium">{BITCOIN_MESSAGES.detectedHeading}</span>
             <p className="text-xs mt-1 opacity-80">
               {detectedCoreVersion !== null
-                ? `Network: ${primaryNode.network} • Version: ${detectedCoreVersion} • Synced`
-                : `Network: ${primaryNode.network} • Version: ${primaryNode.version} • Synced`}
+                ? `Network: ${primaryNode.network} • Version: ${formatBitcoinCoreVersion(detectedCoreVersion)} • Synced`
+                : `Network: ${primaryNode.network} • Version: ${rpcVersionToDisplayVersion(primaryNode.version)} • Synced`}
             </p>
           </div>
         </div>
