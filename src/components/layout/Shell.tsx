@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Sun, Moon, Menu, X, LayoutDashboard, Settings, HelpCircle } from 'lucide-react';
 import { cn, formatUptime } from '@/lib/utils';
+import { getKnownPoolByName } from '@/lib/pools';
 import type { AppMode, AppFeatures } from '@/types/api';
 import { getAppFeatures } from '@/types/api';
 import { useUiConfig } from '@/hooks/useUiConfig';
+import { PoolIcon } from '@/components/ui/pool-icon';
 
 function useTheme() {
   const [isDark, setIsDark] = useState(() => {
@@ -67,6 +69,8 @@ export function Shell({
 
   const features = getAppFeatures(appMode);
   const navItems = getNavItems(features, appMode);
+  const connectedPool = getKnownPoolByName(poolName);
+  const connectedStatusLabel = connectionLabel || `Connected to ${poolName || 'Pool'}`;
 
   // Close on route change
   useEffect(() => { setMenuOpen(false); }, [location]);
@@ -183,9 +187,21 @@ export function Shell({
                     'bg-red-500': connectionStatus === 'disconnected',
                     'bg-yellow-500 animate-pulse': connectionStatus === 'connecting',
                   })} />
-                  {connectionStatus === 'connected'
-                    ? (connectionLabel || `Connected to ${poolName || 'Pool'}`)
-                    : connectionStatus === 'connecting'
+                  {connectionStatus === 'connected' ? (
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{connectedStatusLabel}</span>
+                      {!connectionLabel && connectedPool && (
+                        <PoolIcon
+                          logoUrl={connectedPool.logoUrl}
+                          logoOnDark={connectedPool.logoOnDark}
+                          name={connectedPool.name}
+                          className="h-5 w-5 rounded-md"
+                          imageClassName="h-3.5 w-3.5"
+                          fallbackClassName="h-3 w-3"
+                        />
+                      )}
+                    </span>
+                  ) : connectionStatus === 'connecting'
                     ? 'Connecting...'
                     : 'Disconnected'}
                 </span>

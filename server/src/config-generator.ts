@@ -7,13 +7,14 @@ import {
   JDC_AUTHORITY_PUBLIC_KEY,
   JDC_PORT,
   TRANSLATOR_PORT,
-  shouldAggregateTranslatorChannels,
+  shouldAggregateTranslatorChannelsForPools,
+  isFullDonationIdentity,
   DEFAULT_SHARES_PER_MINUTE,
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
   bitcoinCoreVersionToIpcMajor,
   formatSupportedVersions,
 } from '@sv2-ui/shared';
-import type { SetupData } from './types.js';
+import type { JdcConfig, PoolConfig, SetupData, TranslatorConfig } from './types.js';
 
 function positiveNumber(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -26,28 +27,113 @@ function positiveInteger(value: number | undefined, fallback: number): number {
   return Math.max(1, Math.trunc(normalized));
 }
 
-function isFullDonationIdentity(userIdentity: string): boolean {
-  return userIdentity === 'sri/donate' || /^sri\/donate\/[^/]+$/.test(userIdentity);
+function legacyIdentity(data: SetupData): string {
+  const legacyData = data as SetupData & {
+    translator?: (TranslatorConfig & { user_identity?: string }) | null;
+    jdc?: (JdcConfig & { user_identity?: string }) | null;
+  };
+
+  return legacyData.translator?.user_identity
+    || legacyData.jdc?.user_identity
+    || data.pool?.user_identity
+    || '';
+}
+
+function normalizePool(pool: PoolConfig | null | undefined, fallbackIdentity: string): PoolConfig | null {
+  if (!pool) return null;
+
+  const legacyPool = pool as PoolConfig & { user_identity?: string };
+  return {
+    name: legacyPool.name ?? 'Custom Pool',
+    address: legacyPool.address ?? '',
+    port: legacyPool.port ?? 0,
+    authority_public_key: legacyPool.authority_public_key ?? '',
+    user_identity: legacyPool.user_identity || fallbackIdentity,
+  };
+}
+
+function normalizeFallbackPools(data: SetupData, fallbackIdentity: string): PoolConfig[] {
+  const legacyData = data as SetupData & {
+    fallbackPool?: PoolConfig | null;
+    fallbackPools?: PoolConfig[];
+  };
+
+  const fallbackPools = Array.isArray(legacyData.fallbackPools)
+    ? legacyData.fallbackPools
+    : legacyData.fallbackPool
+      ? [legacyData.fallbackPool]
+      : [];
+
+  if (data.miningMode === 'solo' && data.mode === 'jd') {
+    return [];
+  }
+
+  return fallbackPools
+    .map((pool) => normalizePool(pool, fallbackIdentity))
+    .filter((pool): pool is PoolConfig => Boolean(pool));
+}
+
+function upstreamPools(data: SetupData): PoolConfig[] {
+  if (data.miningMode === 'solo' && data.mode === 'jd') {
+    return [];
+  }
+
+  return [
+    data.pool,
+    ...(data.fallbackPools ?? []),
+  ].filter((pool): pool is PoolConfig => Boolean(pool));
 }
 
 function shouldVerifyPayout(data: SetupData): boolean {
-  if (!data.translator || data.miningMode !== 'solo' || data.mode !== 'no-jd') {
+  if (data.miningMode !== 'solo' || data.mode !== 'no-jd') {
     return false;
   }
 
-  return !isFullDonationIdentity(data.translator.user_identity);
+  const pools = upstreamPools(data);
+  return pools.length > 0 && pools.every((pool) => !isFullDonationIdentity(pool.user_identity));
 }
 
 export function normalizeSetupData(data: SetupData): SetupData {
+  const fallbackIdentity = legacyIdentity(data);
+  const pool = normalizePool(data.pool, fallbackIdentity);
+  const fallbackPools = normalizeFallbackPools(data, fallbackIdentity);
+  const legacyData = data as SetupData & {
+    jdc?: (JdcConfig & { user_identity?: string }) | null;
+  };
+  const legacyJdcIdentity = legacyData.jdc?.user_identity || '';
+  const legacySovereignSoloSignature = data.miningMode === 'solo' && data.mode === 'jd'
+    ? legacyJdcIdentity
+    : '';
+  const jdc = data.jdc
+    ? {
+        jdc_signature: data.jdc.jdc_signature || legacySovereignSoloSignature,
+        coinbase_reward_address: data.jdc.coinbase_reward_address ?? '',
+      }
+    : null;
+
   if (!data.translator) {
-    return data;
+    return {
+      miningMode: data.miningMode,
+      mode: data.mode,
+      pool,
+      fallbackPools,
+      bitcoin: data.bitcoin,
+      jdc,
+      translator: null,
+    };
   }
 
   return {
-    ...data,
+    miningMode: data.miningMode,
+    mode: data.mode,
+    pool,
+    fallbackPools,
+    bitcoin: data.bitcoin,
+    jdc,
     translator: {
-      ...data.translator,
-      aggregate_channels: shouldAggregateTranslatorChannels(data.pool),
+      enable_vardiff: data.translator.enable_vardiff,
+      aggregate_channels: shouldAggregateTranslatorChannelsForPools([pool, ...fallbackPools]),
+      min_hashrate: data.translator.min_hashrate,
       shares_per_minute: positiveNumber(data.translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE),
       downstream_extranonce2_size: positiveInteger(
         data.translator.downstream_extranonce2_size,
@@ -62,8 +148,9 @@ export function normalizeSetupData(data: SetupData): SetupData {
  */
 export function generateTranslatorConfig(data: SetupData): string {
   const normalizedData = normalizeSetupData(data);
-  const { pool, translator, mode } = normalizedData;
+  const { pool, translator, mode, jdc } = normalizedData;
   const isJdMode = mode === 'jd';
+  const isSovereignSolo = normalizedData.miningMode === 'solo' && isJdMode;
 
   if (!translator || (!isJdMode && !pool)) {
     throw new Error('Pool and translator configuration are required');
@@ -72,13 +159,6 @@ export function generateTranslatorConfig(data: SetupData): string {
   // If JD mode, translator connects to JDC container; otherwise directly to pool
   // Both containers are on sv2-network, so we can use the container name as hostname
   // (hostname resolution supported since sv2-apps PR #286)
-  const upstreamAddress = isJdMode ? 'sv2-jdc' : pool!.address;
-  const upstreamPort = isJdMode ? JDC_PORT : pool!.port;
-  // When connecting to local JDC, we don't need authority key (using hardcoded keys)
-  // When connecting to external pool, we need the pool's authority key
-  const authorityPubkey = isJdMode
-    ? JDC_AUTHORITY_PUBLIC_KEY
-    : pool!.authority_public_key;
   const verifyPayout = shouldVerifyPayout(normalizedData);
 
   // Min hashrate from user config (default 100 TH/s if not set)
@@ -90,7 +170,23 @@ export function generateTranslatorConfig(data: SetupData): string {
     DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
   );
 
-  const userIdentityLine = `user_identity = "${translator.user_identity}"`;
+  const upstreams = isJdMode
+    ? [{
+        address: 'sv2-jdc',
+        port: JDC_PORT,
+        authority_public_key: JDC_AUTHORITY_PUBLIC_KEY,
+        user_identity: isSovereignSolo
+          ? (jdc?.jdc_signature || 'solo_miner')
+          : pool!.user_identity,
+      }]
+    : upstreamPools(normalizedData);
+
+  const upstreamsConfig = upstreams.map((upstream) => `[[upstreams]]
+address = "${upstream.address}"
+port = ${upstream.port}
+authority_pubkey = "${upstream.authority_public_key}"
+user_identity = "${upstream.user_identity}"
+`).join('\n');
 
   return `# Translator Proxy Configuration
 # Generated by sv2-ui
@@ -127,11 +223,7 @@ shares_per_minute = ${sharesPerMinute}
 enable_vardiff = true
 job_keepalive_interval_secs = 60
 
-[[upstreams]]
-address = "${upstreamAddress}"
-port = ${upstreamPort}
-authority_pubkey = "${authorityPubkey}"
-${userIdentityLine}
+${upstreamsConfig}
 `;
 }
 
@@ -143,35 +235,42 @@ export function generateJdcConfig(data: SetupData): string | null {
     return null;
   }
 
-  const { pool, jdc, bitcoin } = data;
+  const normalizedData = normalizeSetupData(data);
+  const { pool, fallbackPools, jdc, bitcoin } = normalizedData;
+  if (!jdc || !bitcoin) {
+    return null;
+  }
+
   const bitcoinCoreIpcVersion = bitcoinCoreVersionToIpcMajor(bitcoin.core_version);
   if (!bitcoinCoreIpcVersion) {
     throw new Error(`Bitcoin Core IPC version ${formatSupportedVersions()} is required`);
   }
 
-  const isSovereignSolo = data.miningMode === 'solo';
-  const jdcSignature = isSovereignSolo ? (jdc.jdc_signature || jdc.user_identity) : jdc.jdc_signature;
+  const isSovereignSolo = normalizedData.miningMode === 'solo';
+  const jdcSignature = isSovereignSolo ? (jdc.jdc_signature || 'solo_miner') : jdc.jdc_signature;
 
   // Shares per minute and batch size
   const sharesPerMinute = positiveNumber(
-    data.translator?.shares_per_minute,
+    normalizedData.translator?.shares_per_minute,
     DEFAULT_SHARES_PER_MINUTE,
   ).toFixed(1);
   const shareBatchSize = '5';
   // Fee threshold and min interval for template provider
   const feeThreshold = '1000';
   const minInterval = '5';
-  const userIdentityLine = `user_identity = "${jdc.user_identity}"`;
-  const upstreamsConfig = !isSovereignSolo && pool
-    ? `# Upstream pool connection
-[[upstreams]]
-authority_pubkey = "${pool.authority_public_key}"
-pool_address = "${pool.address}"
-pool_port = ${pool.port}
-jds_address = "${pool.address}"
+  const jdcUpstreamPools = !isSovereignSolo && pool
+    ? [pool, ...(fallbackPools ?? [])]
+    : [];
+  const upstreamsConfig = jdcUpstreamPools.length > 0
+    ? `# Upstream pool connections
+${jdcUpstreamPools.map((upstream) => `[[upstreams]]
+authority_pubkey = "${upstream.authority_public_key}"
+pool_address = "${upstream.address}"
+pool_port = ${upstream.port}
+jds_address = "${upstream.address}"
 jds_port = 3334
-${userIdentityLine}
-
+user_identity = "${upstream.user_identity}"
+`).join('\n')}
 `
     : `# No upstreams needed in solo mining mode.
 upstreams = []

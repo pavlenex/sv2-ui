@@ -10,7 +10,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 
-import type { SetupData, StatusResponse, SetupResponse } from './types.js';
+import type { PoolConfig, SetupData, StatusResponse, SetupResponse } from './types.js';
 import { generateTranslatorConfig, generateJdcConfig, normalizeSetupData } from './config-generator.js';
 import {
   isSupportedBitcoinCoreVersion,
@@ -80,9 +80,14 @@ function normalizeSavedState(state: Partial<SavedState>): SavedState {
     configured,
     miningMode: state.miningMode ?? null,
     mode: state.mode ?? null,
-    data: normalizeSetupBitcoinCoreVersion(state.data ?? null),
+    data: normalizePersistedSetupData(state.data ?? null),
     shouldBeRunning: state.shouldBeRunning ?? configured,
   };
+}
+
+function normalizePersistedSetupData(data: SetupData | null): SetupData | null {
+  const normalizedBitcoinData = normalizeSetupBitcoinCoreVersion(data);
+  return normalizedBitcoinData ? normalizeSetupData(normalizedBitcoinData) : null;
 }
 
 function normalizeSetupBitcoinCoreVersion(data: SetupData | null): SetupData | null {
@@ -112,7 +117,7 @@ async function loadState(): Promise<SavedState> {
  * Save state
  */
 async function saveState(data: SetupData, shouldBeRunning = true): Promise<void> {
-  const normalizedData = normalizeSetupBitcoinCoreVersion(data) ?? data;
+  const normalizedData = normalizePersistedSetupData(data) ?? data;
   await fs.mkdir(CONFIG_DIR, { recursive: true });
   await fs.writeFile(STATE_FILE, JSON.stringify({
     configured: true,
@@ -121,6 +126,57 @@ async function saveState(data: SetupData, shouldBeRunning = true): Promise<void>
     data: normalizedData,
     shouldBeRunning,
   }, null, 2));
+}
+
+// Characters that would break the generated TOML basic string ("...").
+// eslint-disable-next-line no-control-regex
+const TOML_UNSAFE_CHARS = /["\\\u0000-\u001F\u007F]/;
+
+function isTomlSafeIdentifier(value: string): boolean {
+  return value !== '' && value === value.trim() && !TOML_UNSAFE_CHARS.test(value);
+}
+
+function configuredPools(data: SetupData): PoolConfig[] {
+  if (data.miningMode === 'solo' && data.mode === 'jd') {
+    return [];
+  }
+
+  return [
+    data.pool,
+    ...(data.fallbackPools ?? []),
+  ].filter((pool): pool is PoolConfig => Boolean(pool));
+}
+
+function getPoolConfigError(pool: PoolConfig, label: string): string | null {
+  if (!pool.address) return `${label} address is required`;
+  if (!Number.isInteger(pool.port) || pool.port <= 0 || pool.port > 65535) {
+    return `${label} port must be between 1 and 65535`;
+  }
+  if (!pool.authority_public_key) return `${label} authority public key is required`;
+  if (!isTomlSafeIdentifier(pool.user_identity)) {
+    return `${label} username is required and cannot contain quotes, backslashes, or control characters`;
+  }
+  return null;
+}
+
+function getSetupValidationError(data: SetupData): string | null {
+  const requiresPool = !(data.miningMode === 'solo' && data.mode === 'jd');
+
+  if (!data.mode || !data.translator || (requiresPool && !data.pool)) {
+    return BITCOIN_ERROR_MESSAGES.missingConfig;
+  }
+
+  if (data.mode === 'jd' && (!data.jdc || !data.bitcoin)) {
+    return BITCOIN_ERROR_MESSAGES.jdConfig;
+  }
+
+  const pools = configuredPools(data);
+  for (const [index, pool] of pools.entries()) {
+    const error = getPoolConfigError(pool, index === 0 ? 'Primary pool' : `Fallback pool ${index}`);
+    if (error) return error;
+  }
+
+  return null;
 }
 
 function getBitcoinCoreVersionError(data: SetupData): string | null {
@@ -291,14 +347,9 @@ app.put('/api/config', async (req, res) => {
       translator: updates.translator ?? currentData.translator,
     });
 
-    const requiresPool = !(newData.miningMode === 'solo' && newData.mode === 'jd');
-
-    if (!newData.mode || !newData.translator || (requiresPool && !newData.pool)) {
-      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.missingConfig });
-    }
-
-    if (newData.mode === 'jd' && (!newData.jdc || !newData.bitcoin)) {
-      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.jdConfig });
+    const setupValidationError = getSetupValidationError(newData);
+    if (setupValidationError) {
+      return res.status(400).json({ success: false, error: setupValidationError });
     }
 
     const bitcoinCoreVersionError = getBitcoinCoreVersionError(newData);
@@ -430,15 +481,11 @@ app.post('/api/setup', async (req, res) => {
 
   try {
     const data = normalizeSetupData(req.body as SetupData);
-    const requiresPool = !(data.miningMode === 'solo' && data.mode === 'jd');
 
     // Validate required fields
-    if (!data.mode || !data.translator || (requiresPool && !data.pool)) {
-      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.missingConfig });
-    }
-
-    if (data.mode === 'jd' && (!data.jdc || !data.bitcoin)) {
-      return res.status(400).json({ success: false, error: BITCOIN_ERROR_MESSAGES.jdConfig });
+    const setupValidationError = getSetupValidationError(data);
+    if (setupValidationError) {
+      return res.status(400).json({ success: false, error: setupValidationError });
     }
 
     const bitcoinCoreVersionError = getBitcoinCoreVersionError(data);
@@ -552,22 +599,29 @@ app.post('/api/restart', async (_req, res) => {
       return res.status(400).json({ success: false, error: 'Not configured' });
     }
 
-    await saveState(state.data, true);
+    const data = normalizeSetupData(state.data);
 
-    const bitcoinCoreVersionError = getBitcoinCoreVersionError(state.data);
+    const setupValidationError = getSetupValidationError(data);
+    if (setupValidationError) {
+      return res.status(400).json({ success: false, error: setupValidationError });
+    }
+
+    const bitcoinCoreVersionError = getBitcoinCoreVersionError(data);
     if (bitcoinCoreVersionError) {
       return res.status(400).json({ success: false, error: bitcoinCoreVersionError });
     }
 
     await ensureDockerAvailable();
 
-    const bitcoinSocketError = await getBitcoinSocketStartupError(state.data);
+    const bitcoinSocketError = await getBitcoinSocketStartupError(data);
     if (bitcoinSocketError) {
       return res.status(400).json({ success: false, error: bitcoinSocketError });
     }
 
+    await saveState(data, true);
+
     await stopStack();
-    await startStack(state.data, CONFIG_DIR);
+    await startStack(data, CONFIG_DIR);
 
     res.json({ success: true });
   } catch (error) {

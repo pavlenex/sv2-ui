@@ -1,6 +1,7 @@
 /**
  * Shared pool preset definitions used by both the Setup Wizard and Settings.
  */
+import type { PoolConfig } from '@sv2-ui/shared';
 
 export interface KnownPool {
   id: string;
@@ -88,6 +89,12 @@ export const SOLO_POOLS: KnownPool[] = [
   },
 ];
 
+export const ALL_KNOWN_POOLS: KnownPool[] = [
+  ...POOL_MINING_NO_JD,
+  ...POOL_MINING_JD,
+  ...SOLO_POOLS,
+];
+
 /**
  * Get available pools for a given mining mode and template mode.
  */
@@ -95,4 +102,40 @@ export function getPoolsForMode(miningMode: string | null, templateMode: string 
   if (miningMode === 'solo') return SOLO_POOLS;
   if (templateMode === 'jd') return POOL_MINING_JD;
   return POOL_MINING_NO_JD;
+}
+
+export function knownPoolToConfig(pool: KnownPool, userIdentity = ''): PoolConfig {
+  return {
+    name: pool.name,
+    address: pool.address,
+    port: pool.port,
+    authority_public_key: pool.authority_public_key,
+    user_identity: userIdentity,
+  };
+}
+
+export function createEmptyCustomPool(userIdentity = ''): PoolConfig {
+  return {
+    name: 'Custom Pool',
+    address: '',
+    port: 3333,
+    authority_public_key: '',
+    user_identity: userIdentity,
+  };
+}
+
+export function isSamePool(a: Pick<PoolConfig, 'address' | 'port'> | null | undefined, b: Pick<PoolConfig, 'address' | 'port'> | null | undefined): boolean {
+  if (!a || !b) return false;
+  return a.address.trim().toLowerCase() === b.address.trim().toLowerCase() && a.port === b.port;
+}
+
+export function getKnownPoolForConfig(pool: Pick<PoolConfig, 'address' | 'port'> | null | undefined): KnownPool | null {
+  return ALL_KNOWN_POOLS.find((knownPool) => isSamePool(pool, knownPool)) ?? null;
+}
+
+export function getKnownPoolByName(name: string | null | undefined): KnownPool | null {
+  const normalizedName = name?.trim().toLowerCase();
+  if (!normalizedName) return null;
+
+  return ALL_KNOWN_POOLS.find((pool) => pool.name.trim().toLowerCase() === normalizedName) ?? null;
 }

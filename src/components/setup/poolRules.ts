@@ -4,4 +4,5 @@ export {
   BRAIINS_POOL_NAME,
   isAggregatedTproxyPoolName,
   shouldAggregateTranslatorChannels,
+  shouldAggregateTranslatorChannelsForPools,
 } from '@sv2-ui/shared';

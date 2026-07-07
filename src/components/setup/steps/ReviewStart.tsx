@@ -3,8 +3,9 @@ import { SetupStep, StepProps } from "../types";
 import { Loader2, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MinerConnectionInfo } from "../MinerConnectionInfo";
-import { shouldAggregateTranslatorChannels } from "../poolRules";
+import { shouldAggregateTranslatorChannelsForPools } from "../poolRules";
 import { isBitcoinSocketError } from "@/lib/bitcoinSocketErrors";
+import { getPoolUserIdentityDisplay } from "@/lib/miningIdentity";
 import { formatHashrate } from "@/lib/utils";
 import { formatBitcoinCoreVersion, normalizeBitcoinCoreVersion } from "@sv2-ui/shared";
 
@@ -41,6 +42,7 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
   const isSovereignSolo = isSoloMode && isJdMode;
   const showBlockTemplates = data.mode !== null;
   const showPoolSection = Boolean(data.pool) && !isSovereignSolo;
+  const showFallbackPools = !isSovereignSolo && (data.fallbackPools?.length ?? 0) > 0;
   const showBitcoinSection = isJdMode && Boolean(data.bitcoin);
   const bitcoinCoreVersion = normalizeBitcoinCoreVersion(data.bitcoin?.core_version);
   const templateModeLabel = isSoloMode
@@ -51,7 +53,10 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
       ? "Custom Templates (Job Declaration)"
       : "Pool Templates";
   const isAggregatedTproxy =
-    !isSoloMode && shouldAggregateTranslatorChannels(data.pool);
+    !isSoloMode && shouldAggregateTranslatorChannelsForPools([
+      data.pool,
+      ...(data.fallbackPools ?? []),
+    ]);
   const showBitcoinSetupButton = isJdMode && isBitcoinSocketError(error);
 
   let sectionCount = 0;
@@ -250,6 +255,14 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
               <div className="font-mono text-xs truncate text-muted-foreground/70">
                 {data.pool.authority_public_key}
               </div>
+              <div>
+                <span className="text-muted-foreground text-xs">
+                  Username:
+                </span>{" "}
+                <span className="font-mono text-xs text-foreground break-all">
+                  {getPoolUserIdentityDisplay(data.pool, data.miningMode)}
+                </span>
+              </div>
               {isAggregatedTproxy && (
                 <div className="mt-2 rounded-lg bg-warning/[0.08] px-3 py-2 text-xs leading-relaxed">
                   Translator aggregation is enabled for Braiins compatibility.
@@ -258,6 +271,37 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
                   will not track workers individually.
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {showFallbackPools && (
+          <div className="p-5 border-x border-b border-border bg-card">
+            <SectionLabel n={nextSection()} label="Fallback Pools" />
+            <div className="text-sm text-muted-foreground space-y-3 pl-7">
+              {data.fallbackPools.map((pool, index) => (
+                <div key={`${pool.address}:${pool.port}:${index}`} className="space-y-1">
+                  <div>
+                    <span className="text-foreground">
+                      {pool.name || `Fallback ${index + 1}`}
+                    </span>
+                  </div>
+                  <div className="font-mono text-xs">
+                    {pool.address}:{pool.port}
+                  </div>
+                  <div className="font-mono text-xs truncate text-muted-foreground/70">
+                    {pool.authority_public_key}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">
+                      Username:
+                    </span>{" "}
+                    <span className="font-mono text-xs text-foreground break-all">
+                      {getPoolUserIdentityDisplay(pool, data.miningMode)}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -290,7 +334,7 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
         )}
 
         {data.translator && (
-          <div className="p-5 border-x border-b border-border bg-card">
+          <div className={`p-5 border-x border-b border-border bg-card ${!isJdMode ? "rounded-b-xl" : ""}`}>
             <SectionLabel n={nextSection()} label="Advanced Mining Config" />
             <div className="text-sm text-muted-foreground space-y-1 pl-7">
               <div>
@@ -309,112 +353,35 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
           </div>
         )}
 
-        <div className="p-5 rounded-b-xl border-x border-b border-border bg-card">
-          <SectionLabel n={nextSection()} label="Mining Identity" />
-          <div className="text-sm text-muted-foreground space-y-1 pl-7">
-            {(() => {
-              const identity =
-                data.translator?.user_identity ?? data.jdc?.user_identity ?? "";
-              if (!identity) return <div className="font-mono text-xs">—</div>;
-
-              if (
-                isSoloMode &&
-                (identity.startsWith("sri/solo/") ||
-                  identity.startsWith("sri/donate"))
-              ) {
-                let addr = "";
-                let worker = "";
-                let donation = "";
-
-                if (identity.startsWith("sri/solo/")) {
-                  const rest = identity.slice("sri/solo/".length);
-                  const idx = rest.indexOf("/");
-                  addr = idx === -1 ? rest : rest.slice(0, idx);
-                  worker = idx === -1 ? "" : rest.slice(idx + 1);
-                  donation = "0%";
-                } else if (identity === "sri/donate") {
-                  donation = "100%";
-                } else if (identity.startsWith("sri/donate/")) {
-                  const rest = identity.slice("sri/donate/".length);
-                  const parts = rest.split("/");
-                  const pct = parseInt(parts[0], 10);
-                  if (
-                    !isNaN(pct) &&
-                    String(pct) === parts[0] &&
-                    parts.length >= 2
-                  ) {
-                    donation = `${pct}%`;
-                    addr = parts[1];
-                    worker = parts.slice(2).join("/");
-                  } else {
-                    donation = "100%";
-                    worker = rest;
-                  }
-                }
-
-                return (
-                  <>
-                    {addr && (
-                      <div>
-                        <span className="text-muted-foreground text-xs">
-                          Payout Address:
-                        </span>{" "}
-                        <span className="font-mono text-xs text-foreground">
-                          {addr}
-                        </span>
-                      </div>
-                    )}
-                    {worker && (
-                      <div>
-                        <span className="text-muted-foreground text-xs">
-                          Worker:
-                        </span>{" "}
-                        <span className="font-mono text-xs text-foreground">
-                          {worker}
-                        </span>
-                      </div>
-                    )}
-                    <div>
-                      <span className="text-muted-foreground text-xs">
-                        Donation:
-                      </span>{" "}
-                      <span className="text-xs text-foreground">
-                        {donation}
-                      </span>
-                    </div>
-                    <div className="font-mono text-xs text-muted-foreground/70 break-all">
-                      {identity}
-                    </div>
-                  </>
-                );
-              }
-
-              return <div className="font-mono text-xs">{identity}</div>;
-            })()}
-            {isJdMode && data.jdc?.coinbase_reward_address && (
-              <div>
-                <span className="text-muted-foreground text-xs">
-                  {isSovereignSolo
-                    ? "Block Reward Address:"
-                    : "Fallback Address:"}
-                </span>{" "}
-                <span className="font-mono text-xs text-muted-foreground/70">
-                  {data.jdc.coinbase_reward_address}
-                </span>
-              </div>
-            )}
-            {isJdMode && data.jdc?.jdc_signature && (
-              <div>
-                <span className="text-muted-foreground text-xs">
-                  Miner Signature:
-                </span>{" "}
-                <span className="font-mono text-xs text-muted-foreground/70">
-                  {data.jdc.jdc_signature}
-                </span>
-              </div>
-            )}
+        {isJdMode && data.jdc && (
+          <div className="p-5 rounded-b-xl border-x border-b border-border bg-card">
+            <SectionLabel n={nextSection()} label="Job Declaration" />
+            <div className="text-sm text-muted-foreground space-y-1 pl-7">
+              {data.jdc.coinbase_reward_address && (
+                <div>
+                  <span className="text-muted-foreground text-xs">
+                    {isSovereignSolo
+                      ? "Block Reward Address:"
+                      : "Fallback Address:"}
+                  </span>{" "}
+                  <span className="font-mono text-xs text-muted-foreground/70">
+                    {data.jdc.coinbase_reward_address}
+                  </span>
+                </div>
+              )}
+              {data.jdc.jdc_signature && (
+                <div>
+                  <span className="text-muted-foreground text-xs">
+                    Miner Signature:
+                  </span>{" "}
+                  <span className="font-mono text-xs text-muted-foreground/70">
+                    {data.jdc.jdc_signature}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="flex justify-center">
