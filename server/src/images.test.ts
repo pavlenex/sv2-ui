@@ -11,7 +11,9 @@ const BASE_SETUP_DATA: SetupData = {
     address: 'pool.example.com',
     port: 34254,
     authority_public_key: 'authority-key',
+    user_identity: 'miner.worker1',
   },
+  fallbackPools: [],
   bitcoin: {
     core_version: '31',
     network: 'testnet4',
@@ -20,12 +22,10 @@ const BASE_SETUP_DATA: SetupData = {
     socket_path: '/tmp/bitcoin.sock',
   },
   jdc: {
-    user_identity: 'miner.worker1',
     jdc_signature: 'custom-miner-tag',
     coinbase_reward_address: 'tb1qexample',
   },
   translator: {
-    user_identity: 'miner.worker1',
     enable_vardiff: true,
     aggregate_channels: false,
     min_hashrate: 100_000_000_000_000,

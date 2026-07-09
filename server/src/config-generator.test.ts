@@ -11,7 +11,9 @@ const BASE_DATA_30: SetupData = {
     address: 'pool.example.com',
     port: 34254,
     authority_public_key: 'authority-key',
+    user_identity: 'miner.worker1',
   },
+  fallbackPools: [],
   bitcoin: {
     core_version: '30',
     network: 'testnet4',
@@ -20,12 +22,10 @@ const BASE_DATA_30: SetupData = {
     socket_path: '/tmp/bitcoin.sock',
   },
   jdc: {
-    user_identity: 'miner.worker1',
     jdc_signature: 'custom-miner-tag',
     coinbase_reward_address: 'tb1qexample',
   },
   translator: {
-    user_identity: 'miner.worker1',
     enable_vardiff: true,
     aggregate_channels: false,
     min_hashrate: 100_000_000_000_000,
@@ -53,11 +53,12 @@ const NO_JD_DATA: SetupData = {
     address: 'remote.pool.com',
     port: 3333,
     authority_public_key: 'remote-pool-key',
+    user_identity: 'miner.solo',
   },
+  fallbackPools: [],
   bitcoin: null,
   jdc: null,
   translator: {
-    user_identity: 'miner.solo',
     enable_vardiff: true,
     aggregate_channels: false,
     min_hashrate: 100_000_000_000_000,
@@ -84,8 +85,8 @@ test('translator config enables payout verification for solo pool mining', () =>
     ...BASE_DATA_30,
     miningMode: 'solo',
     mode: 'no-jd',
-    translator: {
-      ...BASE_DATA_30.translator,
+    pool: {
+      ...BASE_DATA_30.pool!,
       user_identity: 'tb1qexample',
     },
   });
@@ -99,8 +100,8 @@ test('translator config disables payout verification for full donation solo iden
     ...BASE_DATA_30,
     miningMode: 'solo',
     mode: 'no-jd',
-    translator: {
-      ...BASE_DATA_30.translator,
+    pool: {
+      ...BASE_DATA_30.pool!,
       user_identity: 'sri/donate/worker1',
     },
   });
@@ -114,9 +115,10 @@ test('translator config keeps payout verification disabled for sovereign solo mi
     ...BASE_DATA_30,
     miningMode: 'solo',
     pool: null,
-    translator: {
-      ...BASE_DATA_30.translator,
-      user_identity: 'solo_miner',
+    fallbackPools: [],
+    jdc: {
+      ...BASE_DATA_30.jdc!,
+      jdc_signature: '',
     },
   });
 
@@ -147,6 +149,94 @@ test('normalization backfills advanced defaults for old saved configs', () => {
   assert.ok(normalized.translator);
   assert.equal(normalized.translator.shares_per_minute, 6);
   assert.equal(normalized.translator.downstream_extranonce2_size, 4);
+});
+
+test('normalization migrates legacy translator identity into primary and fallback pools', () => {
+  const data = {
+    ...BASE_DATA_30,
+    pool: {
+      name: 'Legacy Primary',
+      address: 'legacy.primary',
+      port: 3333,
+      authority_public_key: 'legacy-primary-key',
+    },
+    fallbackPool: {
+      name: 'Legacy Fallback',
+      address: 'legacy.fallback',
+      port: 4444,
+      authority_public_key: 'legacy-fallback-key',
+    },
+    fallbackPools: undefined,
+    translator: {
+      ...BASE_DATA_30.translator,
+      user_identity: 'legacy.worker',
+    },
+  } as unknown as SetupData;
+
+  const normalized = normalizeSetupData(data);
+
+  assert.equal(normalized.pool?.user_identity, 'legacy.worker');
+  assert.equal(normalized.fallbackPools.length, 1);
+  assert.equal(normalized.fallbackPools[0].user_identity, 'legacy.worker');
+  assert.equal('fallbackPool' in normalized, false);
+  assert.equal('user_identity' in normalized.translator!, false);
+});
+
+test('normalization migrates legacy jdc identity to the pool without changing pool-mode signature', () => {
+  const data = {
+    ...BASE_DATA_30,
+    pool: {
+      name: 'Legacy Primary',
+      address: 'legacy.primary',
+      port: 3333,
+      authority_public_key: 'legacy-primary-key',
+    },
+    jdc: {
+      user_identity: 'legacy.pool.worker',
+      jdc_signature: '',
+      coinbase_reward_address: 'tb1qexample',
+    },
+  } as unknown as SetupData;
+
+  const normalized = normalizeSetupData(data);
+
+  assert.equal(normalized.pool?.user_identity, 'legacy.pool.worker');
+  assert.equal(normalized.jdc?.jdc_signature, '');
+});
+
+test('normalization preserves legacy sovereign solo identity as signature fallback', () => {
+  const data = {
+    ...BASE_DATA_31_SOLO,
+    mode: 'jd',
+    jdc: {
+      user_identity: 'legacy_solo_miner',
+      jdc_signature: '',
+      coinbase_reward_address: 'tb1qexample',
+    },
+  } as unknown as SetupData;
+
+  const normalized = normalizeSetupData(data);
+
+  assert.equal(normalized.pool, null);
+  assert.equal(normalized.fallbackPools.length, 0);
+  assert.equal(normalized.jdc?.jdc_signature, 'legacy_solo_miner');
+});
+
+test('normalization enables translator aggregation when a fallback pool requires it', () => {
+  const normalized = normalizeSetupData({
+    ...NO_JD_DATA,
+    fallbackPools: [
+      {
+        name: 'Braiins Pool',
+        address: 'stratum.braiins.com',
+        port: 3333,
+        authority_public_key: 'fallback-key',
+        user_identity: 'miner.fallback',
+      },
+    ],
+  });
+
+  assert.equal(normalized.translator?.aggregate_channels, true);
 });
 
 test('translator puts user_identity inside [[upstreams]] for JD mode', () => {
@@ -208,4 +298,51 @@ test('no-jd mode: translator uses new format (user_identity inside [[upstreams]]
 
   assert.ok(identityIdx > upstreamIdx);
   assert.match(config, /\[\[upstreams\]\][\s\S]*user_identity = "miner\.solo"/);
+});
+
+test('no-jd mode: translator emits fallback upstreams after the primary pool', () => {
+  const config = generateTranslatorConfig({
+    ...NO_JD_DATA,
+    fallbackPools: [
+      {
+        name: 'Fallback Pool',
+        address: 'fallback.pool.com',
+        port: 4444,
+        authority_public_key: 'fallback-key',
+        user_identity: 'miner.fallback',
+      },
+    ],
+  });
+
+  const primaryIdx = config.indexOf('address = "remote.pool.com"');
+  const fallbackIdx = config.indexOf('address = "fallback.pool.com"');
+
+  assert.ok(primaryIdx > 0);
+  assert.ok(fallbackIdx > primaryIdx);
+  assert.match(config, /address = "remote\.pool\.com"[\s\S]*user_identity = "miner\.solo"/);
+  assert.match(config, /address = "fallback\.pool\.com"[\s\S]*user_identity = "miner\.fallback"/);
+});
+
+test('jdc config emits fallback upstreams after the primary pool', () => {
+  const config = generateJdcConfig({
+    ...BASE_DATA_30,
+    fallbackPools: [
+      {
+        name: 'Fallback Pool',
+        address: 'fallback.pool.com',
+        port: 4444,
+        authority_public_key: 'fallback-key',
+        user_identity: 'miner.fallback',
+      },
+    ],
+  });
+
+  assert.ok(config);
+  const primaryIdx = config.indexOf('pool_address = "pool.example.com"');
+  const fallbackIdx = config.indexOf('pool_address = "fallback.pool.com"');
+
+  assert.ok(primaryIdx > 0);
+  assert.ok(fallbackIdx > primaryIdx);
+  assert.match(config, /pool_address = "pool\.example\.com"[\s\S]*user_identity = "miner\.worker1"/);
+  assert.match(config, /pool_address = "fallback\.pool\.com"[\s\S]*user_identity = "miner\.fallback"/);
 });

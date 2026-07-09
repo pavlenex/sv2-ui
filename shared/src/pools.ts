@@ -13,3 +13,13 @@ export function shouldAggregateTranslatorChannels(pool: PoolConfig | null): bool
   return pool.authority_public_key === BRAIINS_POOL_AUTHORITY_KEY
     || pool.address.toLowerCase() === BRAIINS_POOL_ADDRESS;
 }
+
+export function shouldAggregateTranslatorChannelsForPools(
+  pools: readonly (PoolConfig | null | undefined)[],
+): boolean {
+  return pools.some((pool) => shouldAggregateTranslatorChannels(pool ?? null));
+}
+
+export function isFullDonationIdentity(userIdentity: string): boolean {
+  return userIdentity === 'sri/donate' || /^sri\/donate\/[^/]+$/.test(userIdentity);
+}

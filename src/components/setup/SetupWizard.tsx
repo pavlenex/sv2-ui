@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowLeft, AlertCircle, Sun, Moon } from 'lucide-react';
 import { SetupStep, SetupData, initialSetupData } from './types';
-import { shouldAggregateTranslatorChannels } from './poolRules';
+import { shouldAggregateTranslatorChannelsForPools } from './poolRules';
 import { BITCOIN_MESSAGES } from '@/lib/messages';
 
 function useTheme() {
@@ -61,7 +61,9 @@ function computeSteps(data: SetupData): SetupStep[] {
       steps.push('pool');
     }
     if (data.mode) {
-      steps.push('hashrate', 'identity', 'review');
+      steps.push('hashrate');
+      if (isJdMode) steps.push('identity');
+      steps.push('review');
     }
     return steps;
   }
@@ -71,7 +73,7 @@ function computeSteps(data: SetupData): SetupStep[] {
     if (data.mode === 'jd') {
       steps.push('pool', 'bitcoin-prereq', 'bitcoin', 'hashrate', 'identity', 'review');
     } else if (data.mode === 'no-jd') {
-      steps.push('pool', 'hashrate', 'identity', 'review');
+      steps.push('pool', 'hashrate', 'review');
     }
   }
 
@@ -133,7 +135,10 @@ export function SetupWizard() {
     if (newData.translator) {
       newData.translator = {
         ...newData.translator,
-        aggregate_channels: shouldAggregateTranslatorChannels(newData.pool),
+        aggregate_channels: shouldAggregateTranslatorChannelsForPools([
+          newData.pool,
+          ...(newData.fallbackPools ?? []),
+        ]),
       };
     }
     dataRef.current = newData;
@@ -168,9 +173,9 @@ export function SetupWizard() {
     if (idx > 0) {
       const prevStep = steps[idx - 1];
       if (prevStep === 'mining-mode') {
-        updateData({ miningMode: null, mode: null, pool: null, bitcoin: null, jdc: null, translator: null });
+        updateData({ miningMode: null, mode: null, pool: null, fallbackPools: [], bitcoin: null, jdc: null, translator: null });
       } else if (prevStep === 'template-mode') {
-        updateData({ pool: null, bitcoin: null, jdc: null, translator: null });
+        updateData({ pool: null, fallbackPools: [], bitcoin: null, jdc: null, translator: null });
       }
       setCurrentStep(prevStep);
     }
