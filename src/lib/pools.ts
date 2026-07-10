@@ -61,6 +61,15 @@ export const SOLO_POOLS: KnownPool[] = [
     logoUrl: '/mkpool-avatar-navy.svg',
   },
   {
+    id: 'nexuspool',
+    name: 'NexusPool',
+    address: 'nexuspool.io',
+    port: 3350,
+    authority_public_key: '9amd6GUzTaGXASESCa75c9Rx3vWYihRyLUAE3Vrmqwgm3T9jtxN',
+    description: 'NexusPool',
+    logoUrl: '/nexuspool-logo.png',
+  },
+  {
     id: 'publicpool',
     name: 'PublicPool',
     address: 'public-pool.io',
