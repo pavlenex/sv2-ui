@@ -162,49 +162,47 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
       primaryNode.network,
     )
     : '';
+  const needsManualConnection = ipcStatus === 'invalid' || (!isDiscovering && !hasDiscovered);
 
   return (
-    <div className="space-y-8 text-center">
+    <div className="space-y-6 text-center">
       <div>
-        <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">
+        <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-2">
           {BITCOIN_MESSAGES.prereqHeading}
         </h2>
-        <p className="text-lg text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           {BITCOIN_MESSAGES.versionRequirement}
-        </p>
-        <p className="text-sm text-muted-foreground mt-3">
-          {BITCOIN_MESSAGES.platformInfo}
         </p>
       </div>
 
-      <div className="text-left space-y-3">
+      <div className="text-left rounded-xl border border-border bg-card divide-y divide-border">
         {/* Step 1 */}
-        <div className="flex gap-4 p-4 rounded-xl border border-border bg-card">
+        <div className="flex gap-4 p-4">
           <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0 mt-0.5">1</div>
           <div className="flex-1 min-w-0">
             <div className="font-medium text-sm mb-1">
               {BITCOIN_MESSAGES.installStep}
             </div>
-            <p className="text-xs text-muted-foreground mb-2">
-              {BITCOIN_MESSAGES.upgradePrompt}
-            </p>
-            <a
-              href="https://bitcoincore.org/en/download/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
-            >
-              bitcoincore.org/en/download
-              <ExternalLink className="w-3 h-3" aria-hidden="true" />
-            </a>
-            <div className="mt-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <a
+                href="https://bitcoincore.org/en/download/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
+              >
+                Download Bitcoin Core
+                <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              </a>
+              <span aria-hidden="true">·</span>
+              <span>{BITCOIN_MESSAGES.upgradePrompt}</span>
+              <span aria-hidden="true">·</span>
               <a
                 href="https://github.com/bitcoin-core/libmultiprocess/pull/231"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
+                className="inline-flex items-center gap-1 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
               >
-                Windows IPC support is still in progress
+                {BITCOIN_MESSAGES.windowsSupport}
                 <ExternalLink className="w-3 h-3" aria-hidden="true" />
               </a>
             </div>
@@ -212,15 +210,15 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
         </div>
 
         {/* Step 2 */}
-        <div className="flex gap-4 p-4 rounded-xl border border-border bg-card">
+        <div className="flex gap-4 p-4">
           <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0 mt-0.5">2</div>
           <div className="flex-1 min-w-0">
             <div className="font-medium text-sm mb-3">
               Start with IPC enabled
             </div>
 
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Mainnet</p>
+            <div>
+              <p className="text-xs text-muted-foreground font-medium mb-2">Mainnet</p>
               <div className="relative">
                 <pre
                   className="bg-muted/60 p-3 pr-12 rounded-lg text-xs font-mono overflow-x-auto"
@@ -241,37 +239,44 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
                 </button>
               </div>
 
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider pt-1">Testnet4</p>
-              <div className="relative">
-                <pre
-                  className="bg-muted/60 p-3 pr-12 rounded-lg text-xs font-mono overflow-x-auto"
-                  aria-label="Testnet4 start command"
-                >
-                  {testnetCmd}
-                </pre>
-                <button
-                  type="button"
-                  onClick={() => copy(testnetCmd, 'testnet')}
-                  aria-label={copiedTestnet ? 'Copied!' : 'Copy testnet4 command'}
-                  aria-live="polite"
-                  className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-background/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors"
-                >
-                  {copiedTestnet
-                    ? <Check className="w-4 h-4 text-green-500" aria-hidden="true" />
-                    : <Copy className="w-4 h-4 text-muted-foreground" aria-hidden="true" />}
-                </button>
-              </div>
+              <details className="mt-3 group">
+                <summary className="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded">
+                  Using Testnet4?
+                </summary>
+                <div className="relative mt-2">
+                  <pre
+                    className="bg-muted/60 p-3 pr-12 rounded-lg text-xs font-mono overflow-x-auto"
+                    aria-label="Testnet4 start command"
+                  >
+                    {testnetCmd}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={() => copy(testnetCmd, 'testnet')}
+                    aria-label={copiedTestnet ? 'Copied!' : 'Copy testnet4 command'}
+                    aria-live="polite"
+                    className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-background/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors"
+                  >
+                    {copiedTestnet
+                      ? <Check className="w-4 h-4 text-green-500" aria-hidden="true" />
+                      : <Copy className="w-4 h-4 text-muted-foreground" aria-hidden="true" />}
+                  </button>
+                </div>
+              </details>
             </div>
           </div>
         </div>
 
         {/* Step 3 */}
-        <div className="flex gap-4 p-4 rounded-xl border border-border bg-card">
+        <div className="flex gap-4 p-4">
           <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0 mt-0.5">3</div>
           <div className="flex-1">
-            <div className="font-medium text-sm">
+            <div className="font-medium text-sm mb-1">
               Wait for initial sync
             </div>
+            <p className="text-xs text-muted-foreground">
+              Initial sync must finish before you can continue.
+            </p>
           </div>
         </div>
       </div>
@@ -378,9 +383,9 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
         >
           <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div className="text-left">
-            <span className="font-medium">Bitcoin Core RPC detected but IPC socket not found</span>
+            <span className="font-medium">IPC socket wasn’t detected</span>
             <p className="text-xs mt-1 opacity-80">
-              The IPC socket was not found at the expected path. Continue to configure the connection manually.
+              Start Bitcoin Core with IPC enabled, or configure the connection manually.
             </p>
           </div>
         </div>
@@ -392,14 +397,16 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
           role="alert"
           aria-live="assertive"
         >
-          <div className="flex-1 min-w-0 space-y-3">
-            <span className="block">
-              We couldn’t automatically detect your Bitcoin Core node. If it’s still starting, wait a moment and retry. If it’s already running, you can continue and enter the connection details manually.
-            </span>
+          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="flex-1 min-w-0 text-left">
+            <span className="font-medium">Bitcoin Core wasn’t detected</span>
+            <p className="text-xs mt-1 opacity-80">
+              Start the node and retry, or configure the connection manually.
+            </p>
             <button
               type="button"
               onClick={onRetryDiscovery}
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/30 bg-background px-3 text-xs font-medium text-warning transition-colors hover:bg-warning/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/30"
+              className="inline-flex h-8 items-center gap-2 mt-3 rounded-md border border-warning/30 bg-background px-3 text-xs font-medium text-warning transition-colors hover:bg-warning/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/30"
             >
               <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
               Retry
@@ -415,7 +422,7 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
           disabled={isDiscovering || isSyncing || isUnsupportedVersion || ipcStatus === 'checking'}
           className="h-11 px-10 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Configure Connection
+          {needsManualConnection ? 'Configure manually' : 'Configure Connection'}
         </button>
       </div>
     </div>

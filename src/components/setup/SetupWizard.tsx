@@ -281,7 +281,10 @@ export function SetupWizard() {
       {/* Step content */}
       <div className="flex-1 flex flex-col overflow-y-auto">
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-10">
-          <div key={currentStep} className="w-full max-w-xl animate-fade-in-up">
+          <div
+            key={currentStep}
+            className={`w-full animate-fade-in-up ${currentStep === 'template-mode' ? 'max-w-2xl' : 'max-w-xl'}`}
+          >
             {isReconfiguring && currentStepIndex === 1 && (
               <div className="mb-6 p-3 rounded-xl bg-warning/[0.08] text-sm text-warning flex gap-2 items-start">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true" />

@@ -1,16 +1,18 @@
 import { StepProps } from '../types';
+import { formatSupportedVersions } from '@sv2-ui/shared';
 
 export function TemplateModeSelection({ data, updateData, onNext }: StepProps) {
   const isSoloMode = data.miningMode === 'solo';
+  const heading = isSoloMode ? 'Choose how to solo mine' : 'Choose who builds block templates';
   const primaryTitle = isSoloMode ? 'Sovereign Solo' : 'Custom Templates';
   const primaryDescription = isSoloMode
-    ? 'Create your own block templates locally with Bitcoin Core. No solo pool required.'
-    : 'Create your own block templates locally, using your Bitcoin node.';
+    ? 'Build templates with your own Bitcoin Core node. No solo pool required.'
+    : 'Build templates locally with your own Bitcoin node.';
   const secondaryTitle = isSoloMode ? 'Solo Pool' : 'Pool Templates';
   const secondaryDescription = isSoloMode
-    ? 'Connect to a solo pool that provides templates and handles payouts to your address.'
-    : 'Use templates provided by the pool. Simpler setup without running a node.';
-  const secondaryFooter = isSoloMode ? 'Simpler setup with a solo pool' : 'Simpler setup';
+    ? 'Let a solo pool build templates and send payouts to your address.'
+    : 'Use templates supplied by your pool.';
+  const primaryRequirement = `Bitcoin Core ${formatSupportedVersions()} · Linux/macOS · Fully synced`;
 
   const handleSelect = (mode: 'jd' | 'no-jd') => {
     const isSovereignSolo = isSoloMode && mode === 'jd';
@@ -26,17 +28,11 @@ export function TemplateModeSelection({ data, updateData, onNext }: StepProps) {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">
-          Block Template Selection
+        <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+          {heading}
         </h2>
-        <p className="text-lg text-muted-foreground">
-          Choose who creates your block templates
-        </p>
-        <p className="text-sm text-muted-foreground mt-3">
-          Bitcoin Core IPC currently supports Linux and macOS. Windows is not supported yet.
-        </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -51,7 +47,9 @@ export function TemplateModeSelection({ data, updateData, onNext }: StepProps) {
           <div className="text-xs text-muted-foreground leading-relaxed mb-3">
             {primaryDescription}
           </div>
-          <div className="mt-auto text-xs text-muted-foreground font-mono">Requires: Fully synchronized Bitcoin node on Linux or macOS</div>
+          <div className="mt-auto text-xs text-muted-foreground">
+            {primaryRequirement}
+          </div>
         </button>
 
         <button
@@ -65,7 +63,7 @@ export function TemplateModeSelection({ data, updateData, onNext }: StepProps) {
           <div className="text-xs text-muted-foreground leading-relaxed mb-3">
             {secondaryDescription}
           </div>
-          <div className="mt-auto text-xs text-muted-foreground font-mono">{secondaryFooter}</div>
+          <div className="mt-auto text-xs text-muted-foreground">No local Bitcoin node required</div>
         </button>
       </div>
     </div>

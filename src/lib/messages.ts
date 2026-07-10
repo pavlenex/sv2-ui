@@ -2,11 +2,11 @@ import { formatSupportedVersions } from '@sv2-ui/shared';
 
 export const BITCOIN_MESSAGES = {
   prereqHeading: 'Start Bitcoin Core',
-  versionRequirement: `Job Declaration requires Bitcoin Core ${formatSupportedVersions()} running with IPC enabled`,
+  versionRequirement: `Run Bitcoin Core ${formatSupportedVersions()} with IPC enabled.`,
   platformInfo: 'Bitcoin Core IPC is currently supported on Linux and macOS only. Windows is not supported yet.',
-  installStep: 'Install a supported Bitcoin Core release',
-  upgradePrompt: `Use Bitcoin Core ${formatSupportedVersions()}. If your node runs another version, upgrade to a supported release to get all SV2 features.`,
-  windowsSupport: 'Windows IPC support is still in progress',
+  installStep: `Install Bitcoin Core ${formatSupportedVersions()}`,
+  upgradePrompt: 'Linux and macOS only',
+  windowsSupport: 'Windows IPC support status',
   mainnetLabel: 'Mainnet',
   testnet4Label: 'Testnet4',
   detecting: 'Detecting Bitcoin Core...',
