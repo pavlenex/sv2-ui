@@ -79,12 +79,12 @@ export const SOLO_POOLS: KnownPool[] = [
     logoUrl: '/public-pool-logo.svg',
   },
   {
-    id: 'pypool',
-    name: 'PyPool',
+    id: 'pyblock',
+    name: 'PyBLØCK',
     address: 'pool.pyblock.xyz',
     port: 5555,
     authority_public_key: '9anZZb1uaJDqubvJhekPiNRHA2tuShcNaugDmFxtnTq54sDvTf5',
-    description: 'PyPool',
+    description: 'PyBLØCK',
     logoUrl: '/pyblock-pool-logo.svg',
   },
   {
