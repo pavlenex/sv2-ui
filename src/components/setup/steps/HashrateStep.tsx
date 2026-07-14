@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { StepProps } from '../types';
 import { Check, ChevronDown, Settings2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 
 interface HashratePreset {
   id: string;
@@ -38,6 +39,7 @@ function formatHashrateDisplay(hashrate: number): string {
 }
 
 export function HashrateStep({ data, updateData, onNext }: StepProps) {
+  const isSoloPool = data.miningMode === 'solo' && data.mode === 'no-jd';
   const existingHashrate = data.translator?.min_hashrate || 0;
   const existingSharesPerMinute = data.translator?.shares_per_minute || DEFAULT_SHARES_PER_MINUTE;
   const existingDownstreamExtranonce2Size =
@@ -73,6 +75,7 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
   });
   const [inputError, setInputError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [verifyPayout, setVerifyPayout] = useState(data.translator?.verify_payout ?? true);
   const [sharesPerMinute, setSharesPerMinute] = useState(String(existingSharesPerMinute));
   const [downstreamExtranonce2Size, setDownstreamExtranonce2Size] = useState(
     String(existingDownstreamExtranonce2Size),
@@ -126,9 +129,9 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
   useEffect(() => {
     updateData({
       translator: {
-        ...data.translator,
         enable_vardiff: true,
         aggregate_channels: data.translator?.aggregate_channels ?? false,
+        ...(isSoloPool ? { verify_payout: verifyPayout } : {}),
         min_hashrate: hashrate,
         shares_per_minute: Number(sharesPerMinute) || DEFAULT_SHARES_PER_MINUTE,
         downstream_extranonce2_size:
@@ -137,7 +140,7 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
     });
   // intentionally excluded: data.translator and updateData cause infinite loop when included
     // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [hashrate, sharesPerMinute, downstreamExtranonce2Size]);
+}, [hashrate, sharesPerMinute, downstreamExtranonce2Size, verifyPayout, isSoloPool]);
 
   return (
     <div className="space-y-8">
@@ -249,6 +252,24 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
 
         {showAdvanced && (
           <div className="border-t border-border p-4 space-y-4">
+            {isSoloPool && (
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <p id="verify-payout-label" className="text-sm font-medium">Coinbase Verification</p>
+                  <p id="verify-payout-desc" className="text-xs text-muted-foreground">
+                    Verify that your payout address is included in the pool&apos;s coinbase transaction.
+                  </p>
+                </div>
+                <Switch
+                  id="verify-payout-switch"
+                  checked={verifyPayout}
+                  onCheckedChange={setVerifyPayout}
+                  aria-labelledby="verify-payout-label"
+                  aria-describedby="verify-payout-desc"
+                />
+              </div>
+            )}
+
             <div>
               <label htmlFor="shares-per-minute" className="block text-sm font-medium mb-2">
                 Shares Per Minute

@@ -74,10 +74,10 @@ test('translator config uses advanced setup values', () => {
   assert.match(config, /shares_per_minute = 12\.5/);
 });
 
-test('translator config keeps payout verification disabled for pool mining', () => {
+test('translator config omits payout verification for pool mining', () => {
   const config = generateTranslatorConfig(BASE_DATA_30);
 
-  assert.match(config, /verify_payout = false/);
+  assert.doesNotMatch(config, /verify_payout/);
 });
 
 test('translator config enables payout verification for solo pool mining', () => {
@@ -95,6 +95,24 @@ test('translator config enables payout verification for solo pool mining', () =>
   assert.match(config, /verify_payout = true/);
 });
 
+test('translator config allows payout verification to be disabled for solo pool mining', () => {
+  const config = generateTranslatorConfig({
+    ...BASE_DATA_30,
+    miningMode: 'solo',
+    mode: 'no-jd',
+    pool: {
+      ...BASE_DATA_30.pool!,
+      user_identity: 'tb1qexample',
+    },
+    translator: {
+      ...BASE_DATA_30.translator!,
+      verify_payout: false,
+    },
+  });
+
+  assert.match(config, /verify_payout = false/);
+});
+
 test('translator config disables payout verification for full donation solo identities', () => {
   const config = generateTranslatorConfig({
     ...BASE_DATA_30,
@@ -110,7 +128,7 @@ test('translator config disables payout verification for full donation solo iden
   assert.match(config, /verify_payout = false/);
 });
 
-test('translator config keeps payout verification disabled for sovereign solo mining', () => {
+test('translator config omits payout verification for sovereign solo mining', () => {
   const config = generateTranslatorConfig({
     ...BASE_DATA_30,
     miningMode: 'solo',
@@ -123,7 +141,7 @@ test('translator config keeps payout verification disabled for sovereign solo mi
   });
 
   assert.match(config, /user_identity = "solo_miner"/);
-  assert.match(config, /verify_payout = false/);
+  assert.doesNotMatch(config, /verify_payout/);
 });
 
 test('jdc config uses shared shares-per-minute and miner signature', () => {
@@ -149,6 +167,22 @@ test('normalization backfills advanced defaults for old saved configs', () => {
   assert.ok(normalized.translator);
   assert.equal(normalized.translator.shares_per_minute, 6);
   assert.equal(normalized.translator.downstream_extranonce2_size, 4);
+  assert.equal('verify_payout' in normalized.translator, false);
+});
+
+test('normalization backfills payout verification only for solo pool mining', () => {
+  const normalized = normalizeSetupData({
+    ...BASE_DATA_30,
+    miningMode: 'solo',
+    mode: 'no-jd',
+    pool: {
+      ...BASE_DATA_30.pool!,
+      user_identity: 'tb1qexample',
+    },
+  });
+
+  assert.ok(normalized.translator);
+  assert.equal(normalized.translator.verify_payout, true);
 });
 
 test('normalization migrates legacy translator identity into primary and fallback pools', () => {

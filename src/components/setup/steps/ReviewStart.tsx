@@ -349,6 +349,14 @@ export function ReviewStart({ data, onComplete, onGoToStep }: ReviewStartProps) 
                   {data.translator.downstream_extranonce2_size ?? 4}
                 </span>
               </div>
+              {data.miningMode === "solo" && data.mode === "no-jd" && (
+                <div>
+                  Coinbase verification:{" "}
+                  <span className="font-mono text-xs text-foreground">
+                    {(data.translator.verify_payout ?? true) ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
