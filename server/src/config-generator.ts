@@ -90,13 +90,16 @@ function shouldVerifyPayout(data: SetupData): boolean {
   }
 
   const pools = upstreamPools(data);
-  return pools.length > 0 && pools.every((pool) => !isFullDonationIdentity(pool.user_identity));
+  return data.translator?.verify_payout !== false
+    && pools.length > 0
+    && pools.every((pool) => !isFullDonationIdentity(pool.user_identity));
 }
 
 export function normalizeSetupData(data: SetupData): SetupData {
   const fallbackIdentity = legacyIdentity(data);
   const pool = normalizePool(data.pool, fallbackIdentity);
   const fallbackPools = normalizeFallbackPools(data, fallbackIdentity);
+  const isSoloPool = data.miningMode === 'solo' && data.mode === 'no-jd';
   const legacyData = data as SetupData & {
     jdc?: (JdcConfig & { user_identity?: string }) | null;
   };
@@ -133,6 +136,7 @@ export function normalizeSetupData(data: SetupData): SetupData {
     translator: {
       enable_vardiff: data.translator.enable_vardiff,
       aggregate_channels: shouldAggregateTranslatorChannelsForPools([pool, ...fallbackPools]),
+      ...(isSoloPool ? { verify_payout: data.translator.verify_payout ?? true } : {}),
       min_hashrate: data.translator.min_hashrate,
       shares_per_minute: positiveNumber(data.translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE),
       downstream_extranonce2_size: positiveInteger(
@@ -151,6 +155,7 @@ export function generateTranslatorConfig(data: SetupData): string {
   const { pool, translator, mode, jdc } = normalizedData;
   const isJdMode = mode === 'jd';
   const isSovereignSolo = normalizedData.miningMode === 'solo' && isJdMode;
+  const isSoloPool = normalizedData.miningMode === 'solo' && mode === 'no-jd';
 
   if (!translator || (!isJdMode && !pool)) {
     throw new Error('Pool and translator configuration are required');
@@ -160,6 +165,12 @@ export function generateTranslatorConfig(data: SetupData): string {
   // Both containers are on sv2-network, so we can use the container name as hostname
   // (hostname resolution supported since sv2-apps PR #286)
   const verifyPayout = shouldVerifyPayout(normalizedData);
+  const verifyPayoutConfig = isSoloPool
+    ? `# Verify upstream coinbase outputs against the configured payout
+verify_payout = ${verifyPayout}
+
+`
+    : '';
 
   // Min hashrate from user config (default 100 TH/s if not set)
   const minHashrate = translator.min_hashrate ? `${translator.min_hashrate}.0` : '100_000_000_000_000.0';
@@ -202,9 +213,7 @@ min_supported_version = 2
 # Extranonce2 size for downstream connections
 downstream_extranonce2_size = ${downstreamExtranonce2Size}
 
-# Verify upstream coinbase outputs against the configured payout
-verify_payout = ${verifyPayout}
-
+${verifyPayoutConfig}
 # Aggregate channels: if true, all miners share one upstream channel
 aggregate_channels = ${translator.aggregate_channels}
 

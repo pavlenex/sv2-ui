@@ -32,6 +32,7 @@ export interface JdcConfig {
 export interface TranslatorConfig {
   enable_vardiff: boolean;
   aggregate_channels: boolean;
+  verify_payout?: boolean;
   min_hashrate: number;
   shares_per_minute: number;
   downstream_extranonce2_size: number;
