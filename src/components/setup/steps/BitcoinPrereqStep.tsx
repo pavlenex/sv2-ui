@@ -194,6 +194,32 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
     onRetryDiscovery();
   };
 
+  const mappedHostOs = hostOs ? mapHostOsToOperatingSystem(hostOs) : null;
+  const manualOs = data.bitcoin?.os
+    ?? mappedHostOs
+    ?? (primaryNode ? inferOsFromDataDir(primaryNode.dataDir) : null);
+
+  const handleConfigureManually = () => {
+    if (!manualOs) return;
+
+    const networkChanged = data.bitcoin?.network !== undefined
+      && data.bitcoin.network !== selectedNetwork;
+
+    updateData({
+      bitcoin: {
+        ...(data.bitcoin ?? {}),
+        core_version: data.bitcoin?.core_version ?? null,
+        os: manualOs,
+        network: selectedNetwork,
+        customDataDir: data.bitcoin?.customDataDir ?? '',
+        socket_path: networkChanged ? '' : data.bitcoin?.socket_path ?? '',
+        discoveredLogPath: networkChanged ? undefined : data.bitcoin?.discoveredLogPath,
+      },
+    });
+
+    onNext();
+  };
+
   const detectedVersionLabel = primaryNode
     ? detectedCoreVersion
       ? formatBitcoinCoreVersion(detectedCoreVersion)
@@ -266,7 +292,8 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
     success: 'border-success/20 bg-success/10 text-success',
   }[readiness.tone];
 
-  const canConfigureManually = !hostOsLoading
+  const canConfigureManually = Boolean(manualOs)
+    && !hostOsLoading
     && !isDiscovering
     && !isSyncing
     && !isUnsupportedVersion
@@ -382,7 +409,7 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
           {canConfigureManually && (
             <button
               type="button"
-              onClick={onNext}
+              onClick={handleConfigureManually}
               className={hasDiscovered
                 ? 'h-11 px-8 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors font-medium'
                 : 'h-11 px-5 rounded-full text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors font-medium'}
