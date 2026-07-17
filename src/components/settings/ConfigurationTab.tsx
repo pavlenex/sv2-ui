@@ -593,7 +593,7 @@ export function ConfigurationTab() {
                   {(config.fallbackPools ?? []).length > 0 && (
                     <div className="space-y-2 border-t border-border/60 pt-3">
                       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Fallback priority
+                        Fallback
                       </p>
                       {config.fallbackPools.map((pool, index) => (
                         <PoolSummary

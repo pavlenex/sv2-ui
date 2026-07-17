@@ -1,10 +1,7 @@
 import type { BitcoinNetwork, MiningMode, PoolConfig } from '@sv2-ui/shared';
 import { PoolIcon } from '@/components/ui/pool-icon';
 import { isSamePool, type KnownPool } from '@/lib/pools';
-import {
-  getCompatiblePoolIdentity,
-  withCompatiblePoolIdentity,
-} from '@/lib/miningIdentity';
+import { getCompatiblePoolIdentity } from '@/lib/miningIdentity';
 import { PoolIdentityFields } from './PoolIdentityFields';
 
 interface FallbackIdentitySectionProps {
@@ -97,31 +94,19 @@ export function FallbackIdentitySection({
 
           return (
             <div key={`${idPrefix}-${index}`} className="rounded-lg border border-border bg-card p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <PoolIcon
-                    logoUrl={selectedPreset?.logoUrl}
-                    logoOnDark={selectedPreset?.logoOnDark}
-                    monogram={selectedPreset?.monogram}
-                    name={displayName}
-                  />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{displayName}</div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                      {pool.address}:{pool.port}
-                    </div>
+              <div className="mb-3 flex min-w-0 items-center gap-3">
+                <PoolIcon
+                  logoUrl={selectedPreset?.logoUrl}
+                  logoOnDark={selectedPreset?.logoOnDark}
+                  monogram={selectedPreset?.monogram}
+                  name={displayName}
+                />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{displayName}</div>
+                  <div className="truncate font-mono text-xs text-muted-foreground">
+                    {pool.address}:{pool.port}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onChange(
-                    index,
-                    withCompatiblePoolIdentity(primaryPool, pool, miningMode),
-                  )}
-                  className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  Use primary
-                </button>
               </div>
 
               <PoolIdentityFields
