@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,48 +6,36 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { PoolIcon } from '@/components/ui/pool-icon';
+import { FallbackIdentitySection } from '@/components/pools/FallbackIdentitySection';
+import { PoolIdentityFields } from '@/components/pools/PoolIdentityFields';
+import { PoolPriorityEditor } from '@/components/pools/PoolPriorityEditor';
 import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { useControlApi, getCurrentConfig } from '@/hooks/useControlApi';
 import {
-  createEmptyCustomPool,
   getKnownPoolForConfig,
   getPoolsForMode,
-  isSamePool,
-  knownPoolToConfig,
-  type KnownPool,
 } from '@/lib/pools';
 import {
-  buildSriIdentity,
   getPoolIdentityError,
   getPoolUserIdentityDisplay,
-  isSriPool,
-  normalizePoolUserIdentity,
-  parseSriIdentity,
+  normalizePoolPriorityIdentities,
 } from '@/lib/miningIdentity';
 import {
-  getBitcoinAddressError,
-  getBitcoinAddressPlaceholder,
   getIdentifierError,
-  getPoolAuthorityPubkeyError,
-  isValidPoolAuthorityPubkey,
   isTomlSafeIdentifier,
-  stripWrappingQuotes,
 } from '@/lib/utils';
+import { isPoolComplete } from '@/lib/poolValidation';
 import { isBitcoinSocketError } from '@/lib/bitcoinSocketErrors';
 import type { PoolConfig, SetupData } from '@/components/setup/types';
 import {
   DEFAULT_SHARES_PER_MINUTE,
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
-  DEFAULT_POOL_PORT,
   formatBitcoinCoreVersion,
   normalizeBitcoinCoreVersion,
 } from '@sv2-ui/shared';
 import {
   Loader2,
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  GripVertical,
   RotateCw,
   StopCircle,
   Trash2,
@@ -81,15 +69,8 @@ function clearPersistedDashboardState() {
 }
 
 const SETUP_TARGET_STEP_STORAGE_KEY = 'sv2-ui-setup-target-step';
-const DONATION_SNAP_POINTS = [0, 10, 25, 50, 75, 100];
-const DONATION_SNAP_THRESHOLD = 3;
 
-type EditingField = null | 'pool' | 'fallbackPools' | 'mode' | 'signature' | 'advanced';
-
-function snapDonation(value: number): number {
-  const nearest = DONATION_SNAP_POINTS.find((p) => Math.abs(value - p) <= DONATION_SNAP_THRESHOLD);
-  return nearest ?? value;
-}
+type EditingField = null | 'pools' | 'mode' | 'signature' | 'advanced';
 
 function isPositiveNumber(value: string): boolean {
   const parsed = Number(value);
@@ -130,9 +111,8 @@ export function ConfigurationTab() {
   } = useControlApi();
 
   const [editing, setEditing] = useState<EditingField>(null);
-  const [editPool, setEditPool] = useState<PoolConfig | null>(null);
-  const [editFallbackPools, setEditFallbackPools] = useState<PoolConfig[] | null>(null);
-  const [isCustomPool, setIsCustomPool] = useState(false);
+  const [editPools, setEditPools] = useState<PoolConfig[] | null>(null);
+  const [showFallbackIdentityFields, setShowFallbackIdentityFields] = useState(false);
   const [editMode, setEditMode] = useState<'jd' | 'no-jd' | null>(null);
   const [editSignature, setEditSignature] = useState<string>('');
   const [editAdvanced, setEditAdvanced] = useState<{
@@ -211,20 +191,16 @@ export function ConfigurationTab() {
     navigate('/setup');
   };
 
-  const startEditPool = () => {
+  const startEditPools = () => {
     if (!config?.pool) return;
-    const availablePools = getPoolsForMode(config.miningMode, config.mode);
-    const matchesPreset = availablePools.some(p => p.address === config.pool?.address && p.port === config.pool?.port);
-    setIsCustomPool(!matchesPreset);
-    setEditPool(normalizePoolUserIdentity({ ...config.pool }, config.miningMode));
-    setEditing('pool');
-  };
-
-  const startEditFallbackPools = () => {
-    setEditFallbackPools((config?.fallbackPools ?? []).map((pool) => (
-      normalizePoolUserIdentity(pool, config?.miningMode ?? null)
-    )));
-    setEditing('fallbackPools');
+    const configuredPools = [config.pool, ...(config.fallbackPools ?? [])];
+    setEditPools(normalizePoolPriorityIdentities(
+      configuredPools,
+      config.pool,
+      config.miningMode,
+    ));
+    setShowFallbackIdentityFields(false);
+    setEditing('pools');
   };
 
   const startEditMode = () => {
@@ -252,32 +228,19 @@ export function ConfigurationTab() {
 
   const cancelEdit = () => {
     setEditing(null);
-    setEditPool(null);
-    setEditFallbackPools(null);
-    setIsCustomPool(false);
+    setEditPools(null);
+    setShowFallbackIdentityFields(false);
     setEditMode(null);
     setEditSignature('');
     setEditAdvanced(null);
   };
 
   const editNetwork = config?.bitcoin?.network ?? 'mainnet';
-  const isPoolValid =
-    !!editPool?.address &&
-    Number.isInteger(editPool.port) &&
-    editPool.port > 0 &&
-    editPool.port <= 65535 &&
-    !!editPool?.authority_public_key &&
-    isValidPoolAuthorityPubkey(editPool.authority_public_key) &&
-    !getPoolIdentityError(editPool, config?.miningMode ?? null, editNetwork);
-  const isFallbackPoolsValid = (editFallbackPools ?? []).every((pool) => (
-    !!pool.address &&
-    Number.isInteger(pool.port) &&
-    pool.port > 0 &&
-    pool.port <= 65535 &&
-    !!pool.authority_public_key &&
-    isValidPoolAuthorityPubkey(pool.authority_public_key) &&
-    !getPoolIdentityError(pool, config?.miningMode ?? null, editNetwork)
-  ));
+  const arePoolsValid =
+    (editPools?.length ?? 0) > 0 &&
+    (editPools ?? []).every((pool) => (
+      isPoolComplete(pool, config?.miningMode ?? null, editNetwork)
+    ));
   const isSignatureValid = editSignature === '' || isTomlSafeIdentifier(editSignature);
   const isAdvancedValid =
     !!editAdvanced &&
@@ -289,12 +252,10 @@ export function ConfigurationTab() {
 
     const updated: SetupData = { ...config };
 
-    if (editing === 'pool' && editPool) {
-      if (!isPoolValid) return;
-      updated.pool = { ...editPool };
-    } else if (editing === 'fallbackPools') {
-      if (!isFallbackPoolsValid || !editFallbackPools) return;
-      updated.fallbackPools = [...editFallbackPools];
+    if (editing === 'pools') {
+      if (!arePoolsValid || !editPools) return;
+      updated.pool = editPools[0] ?? null;
+      updated.fallbackPools = editPools.slice(1);
     } else if (editing === 'mode') {
       if (editMode === 'jd' && !config.bitcoin) {
         navigate('/setup');
@@ -399,6 +360,25 @@ export function ConfigurationTab() {
       : 'Pool Templates';
   const pools = getPoolsForMode(activeMiningMode, activeMode);
   const isSaving = isSettingUp;
+  const editPrimaryPool = editPools?.[0] ?? null;
+  const editFallbackPools = editPools?.slice(1) ?? [];
+  const identityLabel = activeMiningMode === 'solo' ? 'Payout address' : 'Pool username';
+  const primaryIdentityValid = editPrimaryPool
+    ? !getPoolIdentityError(editPrimaryPool, activeMiningMode, editNetwork)
+    : false;
+  const fallbackIdentityBlocked = primaryIdentityValid && editFallbackPools.some((pool) => (
+    Boolean(getPoolIdentityError(pool, activeMiningMode, editNetwork))
+  ));
+
+  const updateEditPoolIdentity = (index: number, nextPool: PoolConfig) => {
+    setEditPools((currentPools) => currentPools
+      ? normalizePoolPriorityIdentities(
+          currentPools.map((pool, poolIndex) => poolIndex === index ? nextPool : pool),
+          currentPools[0],
+          activeMiningMode,
+        )
+      : null);
+  };
 
   return (
     <div className="space-y-6 animate-in slide-in-from-left-2 duration-300">
@@ -587,158 +567,102 @@ export function ConfigurationTab() {
             </div>
           )}
 
-          {/* Pool — inline-editable when not Sovereign Solo */}
+          {/* Pool priority — shared with Setup */}
           {!isSovereignSolo && config.pool && (
             <ConfigRow
-              label="Pool"
-              editing={editing === 'pool'}
-              onEdit={startEditPool}
+              label="Pools"
+              editing={editing === 'pools'}
+              onEdit={startEditPools}
               onSave={saveEdit}
               onCancel={cancelEdit}
               isSaving={isSaving}
-              saveDisabled={!isPoolValid}
-              disabled={editing !== null && editing !== 'pool'}
+              saveDisabled={!arePoolsValid}
+              disabled={editing !== null && editing !== 'pools'}
               display={
-                <PoolSummary
-                  pool={config.pool}
-                  miningMode={activeMiningMode}
-                  isActive={isRunning && activePoolIndex === 0}
-                />
+                <div className="space-y-3">
+                  <div>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Primary
+                    </p>
+                    <PoolSummary
+                      pool={config.pool}
+                      miningMode={activeMiningMode}
+                      isActive={isRunning && activePoolIndex === 0}
+                    />
+                  </div>
+                  {(config.fallbackPools ?? []).length > 0 && (
+                    <div className="space-y-2 border-t border-border/60 pt-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Fallback priority
+                      </p>
+                      {config.fallbackPools.map((pool, index) => (
+                        <PoolSummary
+                          key={`${pool.address}:${pool.port}:${index}`}
+                          pool={pool}
+                          miningMode={activeMiningMode}
+                          fallbackIndex={index}
+                          isActive={isRunning && activePoolIndex === index + 1}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               }
               editContent={
-                <div className="space-y-2">
-                  {pools.filter(p => p.badge !== 'coming-soon').map(pool => (
-                    <PoolOption
-                      key={pool.id}
-                      pool={pool}
-                      selected={!isCustomPool && editPool?.address === pool.address && editPool?.port === pool.port}
-                      onSelect={() => {
-                        setIsCustomPool(false);
-                        setEditPool(normalizePoolUserIdentity(
-                          knownPoolToConfig(pool, editPool?.user_identity ?? config.pool?.user_identity ?? ''),
-                          activeMiningMode,
-                        ));
-                      }}
-                    />
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsCustomPool(true);
-                      setEditPool(normalizePoolUserIdentity(
-                        createEmptyCustomPool(editPool?.user_identity ?? config.pool?.user_identity ?? ''),
+                <div className="space-y-6">
+                  <PoolPriorityEditor
+                    presets={pools}
+                    pools={editPools ?? []}
+                    miningMode={activeMiningMode}
+                    onChange={(nextPools) => {
+                      setEditPools((currentPools) => normalizePoolPriorityIdentities(
+                        nextPools,
+                        currentPools?.[0],
                         activeMiningMode,
                       ));
                     }}
-                    className={`w-full p-3 rounded-lg border transition-all text-left ${
-                      isCustomPool
-                        ? 'border-primary bg-primary/[0.04]'
-                        : 'border-border bg-card hover:border-primary/45'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
+                  />
+
+                  {editPrimaryPool && (
+                    <div className="space-y-4 border-t border-border pt-5">
                       <div>
-                        <div className={`font-medium text-sm ${isCustomPool ? 'text-primary' : ''}`}>Custom Pool</div>
-                        <div className="text-xs text-muted-foreground">Enter your own pool connection details</div>
+                        <h3 className="text-sm font-semibold">Mining identity</h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Set the primary {identityLabel.toLowerCase()}. Fallback pools inherit it by default.
+                        </p>
                       </div>
-                      {isCustomPool && (
-                        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                          <Check className="w-3 h-3 text-background" />
-                        </div>
+
+                      <div className="rounded-xl border border-border bg-muted/20 p-4">
+                        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Primary
+                        </p>
+                        <PoolIdentityFields
+                          pool={editPrimaryPool}
+                          miningMode={activeMiningMode}
+                          network={editNetwork}
+                          idPrefix="edit-primary-pool"
+                          onChange={(nextPool) => updateEditPoolIdentity(0, nextPool)}
+                        />
+                      </div>
+
+                      {editFallbackPools.length > 0 && (
+                        <FallbackIdentitySection
+                          primaryPool={editPrimaryPool}
+                          fallbackPools={editFallbackPools}
+                          presets={pools}
+                          miningMode={activeMiningMode}
+                          network={editNetwork}
+                          identityLabel={identityLabel}
+                          idPrefix="edit-fallback-identity"
+                          expanded={showFallbackIdentityFields || fallbackIdentityBlocked}
+                          hasBlockingError={fallbackIdentityBlocked}
+                          onToggle={() => setShowFallbackIdentityFields((current) => !current)}
+                          onChange={(index, nextPool) => updateEditPoolIdentity(index + 1, nextPool)}
+                        />
                       )}
                     </div>
-                  </button>
-                  {isCustomPool && (
-                    <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
-                      <div>
-                        <label htmlFor="edit-pool-address" className="block text-xs font-medium mb-1">Pool Address</label>
-                        <input
-                          id="edit-pool-address"
-                          type="text"
-                          value={editPool?.address ?? ''}
-                          onChange={e => setEditPool(prev => prev ? { ...prev, address: e.target.value } : prev)}
-                          placeholder="pool.example.com"
-                          className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="edit-pool-port" className="block text-xs font-medium mb-1">Port</label>
-                        <input
-                          id="edit-pool-port"
-                          type="number"
-                          value={editPool?.port ?? DEFAULT_POOL_PORT}
-                          onChange={e => setEditPool(prev => prev ? { ...prev, port: parseInt(e.target.value) || DEFAULT_POOL_PORT } : prev)}
-                          className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="edit-pool-pubkey" className="block text-xs font-medium mb-1">Authority Public Key</label>
-                        <input
-                          id="edit-pool-pubkey"
-                          type="text"
-                          value={editPool?.authority_public_key ?? ''}
-                          onChange={e => setEditPool(prev => prev ? { ...prev, authority_public_key: stripWrappingQuotes(e.target.value) } : prev)}
-                          placeholder="Enter pool's authority public key"
-                          className="w-full h-9 px-3 rounded-lg border border-input bg-background font-mono text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-                        />
-                        {getPoolAuthorityPubkeyError(editPool?.authority_public_key ?? '') && (
-                          <p className="text-xs text-destructive mt-1">
-                            {getPoolAuthorityPubkeyError(editPool?.authority_public_key ?? '')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {editPool && (
-                    <PoolIdentityEdit
-                      pool={editPool}
-                      miningMode={activeMiningMode}
-                      network={editNetwork}
-                      idPrefix="edit-primary-pool"
-                      onChange={setEditPool}
-                    />
                   )}
                 </div>
-              }
-            />
-          )}
-
-          {/* Fallback pools */}
-          {!isSovereignSolo && (
-            <ConfigRow
-              label="Fallback Pools"
-              editing={editing === 'fallbackPools'}
-              onEdit={startEditFallbackPools}
-              onSave={saveEdit}
-              onCancel={cancelEdit}
-              isSaving={isSaving}
-              saveDisabled={!isFallbackPoolsValid}
-              disabled={editing !== null && editing !== 'fallbackPools'}
-              display={
-                <div className="space-y-2">
-                  {(config.fallbackPools ?? []).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">None</p>
-                  ) : (
-                    config.fallbackPools.map((pool, index) => (
-                      <PoolSummary
-                        key={`${pool.address}:${pool.port}:${index}`}
-                        pool={pool}
-                        miningMode={activeMiningMode}
-                        fallbackIndex={index}
-                        isActive={isRunning && activePoolIndex === index + 1}
-                      />
-                    ))
-                  )}
-                </div>
-              }
-              editContent={
-                <FallbackPoolsEdit
-                  pools={editFallbackPools ?? []}
-                  availablePools={pools}
-                  miningMode={activeMiningMode}
-                  network={editNetwork}
-                  onChange={setEditFallbackPools}
-                />
               }
             />
           )}
@@ -1041,613 +965,5 @@ function PoolSummary({
         </p>
       </div>
     </div>
-  );
-}
-
-function PoolIdentityEdit({
-  pool,
-  miningMode,
-  network,
-  idPrefix,
-  onChange,
-}: {
-  pool: PoolConfig;
-  miningMode: SetupData['miningMode'];
-  network: NonNullable<SetupData['bitcoin']>['network'];
-  idPrefix: string;
-  onChange: (pool: PoolConfig) => void;
-}) {
-  if (miningMode === 'solo' && isSriPool(pool)) {
-    return (
-      <SriPoolIdentityEdit
-        pool={pool}
-        network={network}
-        idPrefix={idPrefix}
-        onChange={onChange}
-      />
-    );
-  }
-
-  const error = getPoolIdentityError(pool, miningMode, network);
-  const label = 'Username';
-  const placeholder = miningMode === 'solo' ? getBitcoinAddressPlaceholder(network) : 'username.worker1';
-
-  return (
-    <div>
-      <label htmlFor={`${idPrefix}-identity`} className="block text-xs font-medium mb-1">{label}</label>
-      <input
-        id={`${idPrefix}-identity`}
-        type="text"
-        value={pool.user_identity}
-        onChange={(e) => onChange({ ...pool, user_identity: e.target.value })}
-        placeholder={placeholder}
-        className="w-full h-9 px-3 rounded-lg border border-input bg-background font-mono text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-      />
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
-    </div>
-  );
-}
-
-function SriPoolIdentityEdit({
-  pool,
-  network,
-  idPrefix,
-  onChange,
-}: {
-  pool: PoolConfig;
-  network: NonNullable<SetupData['bitcoin']>['network'];
-  idPrefix: string;
-  onChange: (pool: PoolConfig) => void;
-}) {
-  const parsed = parseSriIdentity(pool.user_identity);
-  const needsAddress = parsed.donationPercent < 100;
-  const identityError = getPoolIdentityError(pool, 'solo', network);
-
-  useEffect(() => {
-    const normalizedPool = normalizePoolUserIdentity(pool, 'solo');
-    if (normalizedPool !== pool) {
-      onChange(normalizedPool);
-    }
-  }, [onChange, pool]);
-
-  const updateSriIdentity = (address: string, workerName: string, donationPercent: number) => {
-    onChange({
-      ...pool,
-      user_identity: buildSriIdentity(address, workerName, donationPercent),
-    });
-  };
-
-  return (
-    <div className="space-y-3">
-      {needsAddress && (
-        <div>
-          <label htmlFor={`${idPrefix}-payout-address`} className="block text-xs font-medium mb-1">
-            Username
-          </label>
-          <input
-            id={`${idPrefix}-payout-address`}
-            type="text"
-            value={parsed.address}
-            onChange={(event) => updateSriIdentity(event.target.value, parsed.workerName, parsed.donationPercent)}
-            placeholder={getBitcoinAddressPlaceholder(network)}
-            aria-required="true"
-            autoComplete="off"
-            className="w-full h-9 px-3 rounded-lg border border-input bg-background font-mono text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-          />
-          {getBitcoinAddressError(parsed.address, network) && (
-            <p className="text-xs text-destructive mt-1">{getBitcoinAddressError(parsed.address, network)}</p>
-          )}
-        </div>
-      )}
-
-      <div>
-        <label htmlFor={`${idPrefix}-worker-name`} className="block text-xs font-medium mb-1">
-          Worker Name <span className="text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <input
-          id={`${idPrefix}-worker-name`}
-          type="text"
-          value={parsed.workerName}
-          onChange={(event) => updateSriIdentity(parsed.address, event.target.value, parsed.donationPercent)}
-          placeholder="worker1"
-          autoComplete="off"
-          className="w-full h-9 px-3 rounded-lg border border-input bg-background font-mono text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-        />
-      </div>
-
-      <div>
-        <label htmlFor={`${idPrefix}-donation-slider`} className="block text-xs font-medium mb-1">
-          Donation to SRI Development <span className="text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <div className="p-3 rounded-lg bg-muted/40 space-y-2">
-          <input
-            id={`${idPrefix}-donation-slider`}
-            type="range"
-            min={0}
-            max={100}
-            value={parsed.donationPercent}
-            onChange={(event) => updateSriIdentity(parsed.address, parsed.workerName, snapDonation(Number(event.target.value)))}
-            aria-label={`Donation: ${parsed.donationPercent}%`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={parsed.donationPercent}
-            className="w-full accent-primary"
-            list={`${idPrefix}-donation-snap-points`}
-          />
-          <datalist id={`${idPrefix}-donation-snap-points`}>
-            <option value="0" />
-            <option value="10" />
-            <option value="25" />
-            <option value="50" />
-            <option value="75" />
-            <option value="100" />
-          </datalist>
-          <div className="flex justify-between text-xs text-muted-foreground select-none">
-            <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          {parsed.donationPercent === 0
-            ? 'Full block reward goes to your payout address'
-            : parsed.donationPercent >= 100
-              ? 'Full block reward is donated to SRI development'
-              : `${parsed.donationPercent}% of the block reward goes to SRI development, ${100 - parsed.donationPercent}% to your address`}
-        </p>
-      </div>
-
-      {identityError && <p className="text-xs text-destructive">{identityError}</p>}
-    </div>
-  );
-}
-
-function FallbackPoolsEdit({
-  pools,
-  availablePools,
-  miningMode,
-  network,
-  onChange,
-}: {
-  pools: PoolConfig[];
-  availablePools: KnownPool[];
-  miningMode: SetupData['miningMode'];
-  network: NonNullable<SetupData['bitcoin']>['network'];
-  onChange: (pools: PoolConfig[]) => void;
-}) {
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const draggedIndexRef = useRef<number | null>(null);
-
-  const updatePool = (index: number, nextPool: PoolConfig) => {
-    onChange(pools.map((pool, i) => (
-      i === index ? normalizePoolUserIdentity(nextPool, miningMode) : pool
-    )));
-  };
-
-  const removePool = (index: number) => {
-    onChange(pools.filter((_, i) => i !== index));
-  };
-
-  const movePool = (fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex || toIndex < 0 || toIndex >= pools.length) {
-      return;
-    }
-
-    const nextPools = [...pools];
-    const [movedPool] = nextPools.splice(fromIndex, 1);
-    nextPools.splice(toIndex, 0, movedPool);
-    onChange(nextPools);
-  };
-
-  const availablePreset = availablePools.find((pool) => (
-    pool.badge !== 'coming-soon' &&
-    !pools.some((usedPool) => isSamePool(usedPool, pool))
-  ));
-
-  const addPresetPool = () => {
-    if (!availablePreset) return;
-    onChange([
-      ...pools,
-      normalizePoolUserIdentity(
-        knownPoolToConfig(availablePreset),
-        miningMode,
-      ),
-    ]);
-  };
-
-  const addCustomPool = () => {
-    onChange([
-      ...pools,
-      normalizePoolUserIdentity(
-        createEmptyCustomPool(),
-        miningMode,
-      ),
-    ]);
-  };
-
-  const finishDrag = (toIndex: number) => {
-    if (draggedIndexRef.current !== null) {
-      movePool(draggedIndexRef.current, toIndex);
-    }
-    draggedIndexRef.current = null;
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
-
-  return (
-    <div className="space-y-3">
-      {pools.length === 0 && (
-        <p className="text-sm text-muted-foreground">No fallback pools configured.</p>
-      )}
-
-      {pools.map((pool, index) => (
-        <SettingsFallbackPoolRow
-          key={`fallback-pool-${index}`}
-          pool={pool}
-          index={index}
-          totalPools={pools.length}
-          availablePools={availablePools}
-          miningMode={miningMode}
-          network={network}
-          isDragging={draggedIndex === index}
-          isDragTarget={dragOverIndex === index && draggedIndex !== index}
-          onDragStart={(event) => {
-            draggedIndexRef.current = index;
-            setDraggedIndex(index);
-            setDragOverIndex(index);
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/plain', String(index));
-          }}
-          onDragEnter={() => {
-            if (draggedIndexRef.current !== null && draggedIndexRef.current !== index) {
-              setDragOverIndex(index);
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            finishDrag(index);
-          }}
-          onDragEnd={() => {
-            draggedIndexRef.current = null;
-            setDraggedIndex(null);
-            setDragOverIndex(null);
-          }}
-          onMoveUp={() => movePool(index, index - 1)}
-          onMoveDown={() => movePool(index, index + 1)}
-          onRemove={() => removePool(index)}
-          onChange={(nextPool) => updatePool(index, nextPool)}
-        />
-      ))}
-
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={addPresetPool}
-          disabled={!availablePreset}
-        >
-          Add Preset Pool
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={addCustomPool}
-        >
-          Add Custom Pool
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SettingsFallbackPoolRow({
-  pool,
-  index,
-  totalPools,
-  availablePools,
-  miningMode,
-  network,
-  isDragging,
-  isDragTarget,
-  onDragStart,
-  onDragEnter,
-  onDragOver,
-  onDrop,
-  onDragEnd,
-  onMoveUp,
-  onMoveDown,
-  onRemove,
-  onChange,
-}: {
-  pool: PoolConfig;
-  index: number;
-  totalPools: number;
-  availablePools: KnownPool[];
-  miningMode: SetupData['miningMode'];
-  network: NonNullable<SetupData['bitcoin']>['network'];
-  isDragging: boolean;
-  isDragTarget: boolean;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
-  onDragEnter: () => void;
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
-  onDragEnd: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onRemove: () => void;
-  onChange: (pool: PoolConfig) => void;
-}) {
-  const selectedPreset = availablePools.find((preset) => isSamePool(pool, preset)) ?? null;
-  const knownPool = selectedPreset ?? getKnownPoolForConfig(pool);
-  const isCustom = !selectedPreset;
-  const selectedPoolValue = selectedPreset?.id ?? 'custom';
-  const displayName = (knownPool?.name ?? pool.name) || `Fallback Pool ${index + 1}`;
-  const endpoint = `${pool.address || 'pool.example.com'}:${pool.port || DEFAULT_POOL_PORT}`;
-  const identityError = getPoolIdentityError(pool, miningMode, network);
-  const usesSriIdentity = miningMode === 'solo' && isSriPool(pool);
-
-  const updateField = (field: keyof PoolConfig, value: string | number) => {
-    const normalized =
-      field === 'authority_public_key' && typeof value === 'string'
-        ? stripWrappingQuotes(value)
-        : value;
-    onChange({ ...pool, [field]: normalized });
-  };
-
-  const handlePoolSelection = (poolId: string) => {
-    if (poolId === 'custom') {
-      onChange(createEmptyCustomPool(pool.user_identity));
-      return;
-    }
-
-    const preset = availablePools.find((item) => item.id === poolId);
-    if (preset && preset.badge !== 'coming-soon') {
-      onChange(knownPoolToConfig(preset, pool.user_identity));
-    }
-  };
-
-  const pubkeyError = getPoolAuthorityPubkeyError(pool.authority_public_key);
-
-  return (
-    <div
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      className={`rounded-lg border bg-muted/30 transition-colors ${
-        isDragTarget
-          ? 'border-primary bg-primary/[0.04]'
-          : 'border-border'
-      } ${isDragging ? 'opacity-60' : ''}`}
-    >
-      <div className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] gap-3 p-4 md:grid-cols-[auto_auto_minmax(0,1fr)_minmax(0,1.1fr)_auto] md:items-start">
-        <button
-          type="button"
-          draggable
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          className="inline-flex h-11 w-9 cursor-grab items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-          aria-label={`Drag fallback pool ${index + 1} to reorder`}
-          title="Drag to reorder fallback priority"
-        >
-          <GripVertical className="h-5 w-5" aria-hidden="true" />
-        </button>
-
-        <div className="inline-flex h-11 min-w-9 items-center justify-center rounded-lg bg-background/70 px-2 text-xs font-semibold text-muted-foreground">
-          {index + 1}
-        </div>
-
-        <div className="flex min-w-0 items-start gap-3">
-          <PoolIcon
-            logoUrl={knownPool?.logoUrl}
-            logoOnDark={knownPool?.logoOnDark}
-            monogram={knownPool?.monogram}
-            invertLogoInDarkMode={knownPool?.invertLogoInDarkMode}
-            logoScale={knownPool?.logoScale}
-            name={displayName}
-            className="h-11 w-11 rounded-xl"
-          />
-          <div className="min-w-0 flex-1">
-            <label htmlFor={`fallback-${index}-preset`} className="sr-only">
-              Pool for fallback priority {index + 1}
-            </label>
-            <select
-              id={`fallback-${index}-preset`}
-              value={selectedPoolValue}
-              onChange={(event) => handlePoolSelection(event.target.value)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
-            >
-              {availablePools.map((preset) => (
-                <option key={preset.id} value={preset.id} disabled={preset.badge === 'coming-soon'}>
-                  {preset.name}{preset.badge === 'coming-soon' ? ' (coming soon)' : ''}
-                </option>
-              ))}
-              <option value="custom">Custom Pool</option>
-            </select>
-            <p className="mt-1 truncate text-xs text-muted-foreground font-mono">{endpoint}</p>
-          </div>
-        </div>
-
-        <div className="col-span-2 col-start-3 min-w-0 md:col-span-1 md:col-start-auto">
-          <label htmlFor={`fallback-${index}-identity`} className="sr-only">
-            Username for fallback pool {index + 1}
-          </label>
-          {usesSriIdentity ? (
-            <div className="flex min-h-10 items-center rounded-lg border border-border bg-background px-3 font-mono text-xs text-muted-foreground">
-              <span className="truncate">{getPoolUserIdentityDisplay(pool, miningMode)}</span>
-            </div>
-          ) : (
-            <>
-              <input
-                id={`fallback-${index}-identity`}
-                type="text"
-                value={pool.user_identity}
-                onChange={(event) => onChange({ ...pool, user_identity: event.target.value })}
-                placeholder={miningMode === 'solo' ? getBitcoinAddressPlaceholder(network) : 'username.worker1'}
-                aria-required="true"
-                autoComplete="off"
-                className={`h-10 w-full rounded-lg border bg-background px-3 font-mono text-sm outline-none transition-all focus-visible:ring-2 focus-visible:ring-primary/15 ${
-                  identityError ? 'border-destructive focus-visible:border-destructive' : 'border-input focus-visible:border-primary'
-                }`}
-              />
-              {identityError && <p className="mt-1 text-xs text-destructive">{identityError}</p>}
-            </>
-          )}
-        </div>
-
-        <div className="col-start-4 row-start-1 flex h-11 shrink-0 items-center justify-end gap-1 md:col-start-auto md:row-start-auto">
-          <button
-            type="button"
-            onClick={onMoveUp}
-            disabled={index === 0}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            aria-label={`Move fallback pool ${index + 1} up`}
-            title="Move up"
-          >
-            <ArrowUp className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={onMoveDown}
-            disabled={index === totalPools - 1}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            aria-label={`Move fallback pool ${index + 1} down`}
-            title="Move down"
-          >
-            <ArrowDown className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            aria-label={`Remove fallback pool ${index + 1}`}
-            title="Remove fallback pool"
-          >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
-      {usesSriIdentity && (
-        <div className="border-t border-border bg-background/40 p-4">
-          <SriPoolIdentityEdit
-            pool={pool}
-            network={network}
-            idPrefix={`fallback-${index}`}
-            onChange={onChange}
-          />
-        </div>
-      )}
-
-      {isCustom && (
-        <div className="border-t border-border bg-background/40 p-3">
-          <div className="grid gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_7rem_minmax(0,1.3fr)]">
-            <div>
-              <label htmlFor={`fallback-${index}-name`} className="mb-1 block text-xs font-medium text-muted-foreground">
-                Name
-              </label>
-              <input
-                id={`fallback-${index}-name`}
-                type="text"
-                value={pool.name}
-                onChange={(event) => updateField('name', event.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
-              />
-            </div>
-
-            <div>
-              <label htmlFor={`fallback-${index}-address`} className="mb-1 block text-xs font-medium text-muted-foreground">
-                Address
-              </label>
-              <input
-                id={`fallback-${index}-address`}
-                type="text"
-                value={pool.address}
-                onChange={(event) => updateField('address', event.target.value)}
-                placeholder="pool.example.com"
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
-              />
-            </div>
-
-            <div>
-              <label htmlFor={`fallback-${index}-port`} className="mb-1 block text-xs font-medium text-muted-foreground">
-                Port
-              </label>
-              <input
-                id={`fallback-${index}-port`}
-                type="number"
-                value={pool.port}
-                onChange={(event) => updateField('port', parseInt(event.target.value, 10) || DEFAULT_POOL_PORT)}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
-              />
-            </div>
-
-            <div>
-              <label htmlFor={`fallback-${index}-pubkey`} className="mb-1 block text-xs font-medium text-muted-foreground">
-                Authority Public Key
-              </label>
-              <input
-                id={`fallback-${index}-pubkey`}
-                type="text"
-                value={pool.authority_public_key}
-                onChange={(event) => updateField('authority_public_key', event.target.value)}
-                placeholder="Pool authority public key"
-                className={`h-9 w-full rounded-lg border bg-background px-3 font-mono text-sm outline-none transition-all focus-visible:ring-2 focus-visible:ring-primary/15 ${
-                  pubkeyError ? 'border-destructive focus-visible:border-destructive' : 'border-input focus-visible:border-primary'
-                }`}
-              />
-              {pubkeyError && <p className="mt-1 text-xs text-destructive">{pubkeyError}</p>}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Pool selection option for inline editing.
- */
-function PoolOption({
-  pool,
-  selected,
-  onSelect,
-}: {
-  pool: KnownPool;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-3 ${
-        selected
-          ? 'border-primary bg-primary/[0.04]'
-          : 'border-border bg-card hover:border-primary/45'
-      }`}
-    >
-      <PoolIcon
-        logoUrl={pool.logoUrl}
-        logoOnDark={pool.logoOnDark}
-        monogram={pool.monogram}
-        invertLogoInDarkMode={pool.invertLogoInDarkMode}
-        logoScale={pool.logoScale}
-        name={pool.name}
-      />
-      <div className="flex-1 min-w-0">
-        <div className={`font-medium text-sm ${selected ? 'text-primary' : ''}`}>{pool.name}</div>
-        <div className="text-xs text-muted-foreground font-mono">{pool.address}:{pool.port}</div>
-      </div>
-      {selected && (
-        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-          <Check className="w-3 h-3 text-background" />
-        </div>
-      )}
-    </button>
   );
 }

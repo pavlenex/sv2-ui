@@ -293,7 +293,7 @@ export function Shell({
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="min-h-0 flex-1 overflow-auto">
         <div className="px-4 sm:px-6 py-6 sm:py-8 mx-auto max-w-7xl space-y-6 sm:space-y-8 animate-fade-in">
           {children}
         </div>

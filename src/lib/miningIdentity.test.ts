@@ -1,9 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getSriIdentityError, getSriIdentitySummary, normalizeSriIdentity } from './miningIdentity';
+import type { PoolConfig } from '@sv2-ui/shared';
+import {
+  SRI_POOL_AUTHORITY_KEY,
+  getCompatiblePoolIdentity,
+  getSriIdentityError,
+  getSriIdentitySummary,
+  normalizePoolPriorityIdentities,
+  normalizeSriIdentity,
+} from './miningIdentity';
 
 const MAINNET_ADDRESS = 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh';
+const STANDARD_POOL: PoolConfig = {
+  name: 'Standard Pool',
+  address: 'pool.example.com',
+  port: 3333,
+  authority_public_key: 'standard-key',
+  user_identity: MAINNET_ADDRESS,
+};
+const SRI_POOL: PoolConfig = {
+  ...STANDARD_POOL,
+  name: 'SRI Pool',
+  authority_public_key: SRI_POOL_AUTHORITY_KEY,
+  user_identity: `sri/solo/${MAINNET_ADDRESS}/worker1`,
+};
 
 test('getSriIdentityError accepts a valid solo identity', () => {
   assert.equal(getSriIdentityError(`sri/solo/${MAINNET_ADDRESS}/worker1`, 'mainnet'), null);
@@ -43,4 +64,41 @@ test('getSriIdentitySummary avoids exposing internal identity syntax', () => {
     `${MAINNET_ADDRESS}, worker worker1, 0% donation`,
   );
   assert.equal(getSriIdentitySummary('sri/donate'), 'Full reward donated, 100% donation');
+});
+
+test('getCompatiblePoolIdentity converts between standard and SRI solo identity formats', () => {
+  assert.equal(
+    getCompatiblePoolIdentity(SRI_POOL, STANDARD_POOL, 'solo'),
+    MAINNET_ADDRESS,
+  );
+  assert.equal(
+    getCompatiblePoolIdentity(STANDARD_POOL, SRI_POOL, 'solo'),
+    `sri/solo/${MAINNET_ADDRESS}`,
+  );
+});
+
+test('getCompatiblePoolIdentity does not leak a full-donation identity to another solo pool', () => {
+  assert.equal(
+    getCompatiblePoolIdentity({ ...SRI_POOL, user_identity: 'sri/donate' }, STANDARD_POOL, 'solo'),
+    '',
+  );
+});
+
+test('normalizePoolPriorityIdentities updates inherited fallback identities but preserves overrides', () => {
+  const nextPrimary = { ...STANDARD_POOL, user_identity: 'new-primary.worker' };
+  const inheritedFallback = { ...STANDARD_POOL, address: 'fallback.example.com' };
+  const customFallback = {
+    ...STANDARD_POOL,
+    address: 'custom-fallback.example.com',
+    user_identity: 'custom.worker',
+  };
+
+  const result = normalizePoolPriorityIdentities(
+    [nextPrimary, inheritedFallback, customFallback],
+    STANDARD_POOL,
+    'pool',
+  );
+
+  assert.equal(result[1].user_identity, 'new-primary.worker');
+  assert.equal(result[2].user_identity, 'custom.worker');
 });
