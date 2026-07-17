@@ -12,10 +12,11 @@ import {
 import type { BitcoinCoreVersion, OperatingSystem, BitcoinNetwork } from '@sv2-ui/shared';
 import { BITCOIN_MESSAGES } from '@/lib/messages';
 import { StepProps, BitcoinConfig } from '../types';
-import { Bitcoin, Apple, Terminal, Pencil, Check, Loader2, AlertCircle, CheckCircle2, RotateCw } from 'lucide-react';
+import { Apple, Terminal, Pencil, Check, Loader2, AlertCircle, CheckCircle2, RotateCw } from 'lucide-react';
 import { UmbrelIcon } from '../icons/UmbrelIcon';
 import { useBitcoinSocketValidation } from '@/hooks/useBitcoinSocketValidation';
 import type { BitcoinRpcDiscoveryResult } from '@/hooks/useBitcoinRpcDiscovery';
+import { BitcoinNetworkSelector } from '../BitcoinNetworkSelector';
 
 interface BitcoinSetupProps extends StepProps {
   notice?: string | null;
@@ -231,35 +232,13 @@ export function BitcoinSetup({ data, updateData, onNext, notice, onDismissNotice
         </div>
       )}
 
-      <div role="group" aria-labelledby="network-label">
-        <p id="network-label" className="block text-sm font-medium mb-3">Bitcoin Network</p>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => { setNetwork('mainnet'); resetPath(); }}
-            className={selBtn(network === 'mainnet')}
-            aria-pressed={network === 'mainnet'}
-          >
-            {network === 'mainnet' && <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-primary flex items-center justify-center" aria-hidden="true"><Check className="w-3 h-3 text-background" /></div>}
-            <div className="flex items-center gap-2">
-              <Bitcoin className="h-4 w-4 text-orange-500" aria-hidden="true" />
-              <span className={`font-medium text-sm ${network === 'mainnet' ? 'text-primary' : ''}`}>Mainnet</span>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setNetwork('testnet4'); resetPath(); }}
-            className={selBtn(network === 'testnet4')}
-            aria-pressed={network === 'testnet4'}
-          >
-            {network === 'testnet4' && <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-primary flex items-center justify-center" aria-hidden="true"><Check className="w-3 h-3 text-background" /></div>}
-            <div className="flex items-center gap-2">
-              <Bitcoin className="h-4 w-4 text-blue-500" aria-hidden="true" />
-              <span className={`font-medium text-sm ${network === 'testnet4' ? 'text-primary' : ''}`}>Testnet4</span>
-            </div>
-          </button>
-        </div>
-      </div>
+      <BitcoinNetworkSelector
+        value={network}
+        onChange={(nextNetwork) => {
+          setNetwork(nextNetwork);
+          resetPath();
+        }}
+      />
 
       <div>
         <label htmlFor="data-dir" className="block text-sm font-medium mb-2">

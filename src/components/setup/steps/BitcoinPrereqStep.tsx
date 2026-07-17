@@ -6,6 +6,7 @@ import {
   DEFAULT_BITCOIN_PATHS,
   computeDefaultSocketPath,
   type OperatingSystem,
+  type BitcoinNetwork,
   inferOsFromDataDir,
   mapHostOsToOperatingSystem,
 } from '@sv2-ui/shared';
@@ -14,6 +15,7 @@ import { StepProps, BitcoinConfig } from '../types';
 import { Copy, Check, ExternalLink, Loader2, RotateCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { BitcoinRpcDiscoveryResult } from '@/hooks/useBitcoinRpcDiscovery';
 import { useHostEnv } from '@/hooks/useHostEnv';
+import { BitcoinNetworkSelector } from '../BitcoinNetworkSelector';
 
 interface BitcoinPrereqStepProps extends StepProps {
   discoveredNodes: BitcoinRpcDiscoveryResult[];
@@ -22,23 +24,53 @@ interface BitcoinPrereqStepProps extends StepProps {
   onAutoAdvance: () => void;
 }
 
+const START_COMMANDS: Record<BitcoinNetwork, string> = {
+  mainnet: 'bitcoin -m node -ipcbind=unix',
+  testnet4: 'bitcoin -m node -ipcbind=unix -testnet4',
+};
+
+const NETWORK_LABELS: Record<BitcoinNetwork, string> = {
+  mainnet: 'Mainnet',
+  testnet4: 'Testnet4',
+};
+
+function InstructionStep({
+  number,
+  title,
+  description,
+  children,
+}: {
+  number: number;
+  title: string;
+  description: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-4 p-4 sm:p-5 [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border">
+      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0">
+        {number}
+      </div>
+      <div className="flex-1 min-w-0">
+        <h3 className="font-medium text-sm">{title}</h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, isDiscovering, onRetryDiscovery, onAutoAdvance }: BitcoinPrereqStepProps) {
   const { hostOs, isLoading: hostOsLoading } = useHostEnv();
-  const [copiedMainnet, setCopiedMainnet] = useState(false);
-  const [copiedTestnet, setCopiedTestnet] = useState(false);
+  const [selectedNetwork, setSelectedNetwork] = useState<BitcoinNetwork>('mainnet');
+  const [copiedNetwork, setCopiedNetwork] = useState<BitcoinNetwork | null>(null);
   const [ipcStatus, setIpcStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const ipcCompletedRef = useRef(false);
 
-  const copy = async (text: string, which: 'mainnet' | 'testnet') => {
+  const copy = async (network: BitcoinNetwork) => {
     try {
-      await navigator.clipboard.writeText(text);
-      if (which === 'mainnet') {
-        setCopiedMainnet(true);
-        setTimeout(() => setCopiedMainnet(false), 2000);
-      } else {
-        setCopiedTestnet(true);
-        setTimeout(() => setCopiedTestnet(false), 2000);
-      }
+      await navigator.clipboard.writeText(START_COMMANDS[network]);
+      setCopiedNetwork(network);
+      setTimeout(() => setCopiedNetwork(null), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
@@ -146,278 +178,257 @@ export function BitcoinPrereqStep({ data, updateData, onNext, discoveredNodes, i
     };
   }, [discoveredNodes, hostOsLoading, isDiscovering, updateData, onAutoAdvance, data.bitcoin?.os]);
 
-  const mainnetCmd = 'bitcoin -m node -ipcbind=unix';
-  const testnetCmd = 'bitcoin -m node -ipcbind=unix -testnet4';
-
   const hasDiscovered = discoveredNodes.length > 0;
   const primaryNode = discoveredNodes.find(n => n.network === 'mainnet') ?? discoveredNodes[0];
   const isSyncing = hasDiscovered && discoveredNodes.some(n => n.initialBlockDownload);
   const detectedCoreVersion = primaryNode ? rpcVersionToCoreVersion(primaryNode.version) : null;
   const isUnsupportedVersion = hasDiscovered && !detectedCoreVersion;
-  const autoSocketPath = hasDiscovered && primaryNode
-    ? computeDefaultSocketPath(
-      DEFAULT_BITCOIN_PATHS[
-        primaryNode.dataDir.includes('Library/Application Support') ? 'macos' : 'linux'
-      ],
-      primaryNode.network,
-    )
+
+  useEffect(() => {
+    if (primaryNode) setSelectedNetwork(primaryNode.network);
+  }, [primaryNode]);
+
+  const handleRetry = () => {
+    ipcCompletedRef.current = false;
+    setIpcStatus('idle');
+    onRetryDiscovery();
+  };
+
+  const mappedHostOs = hostOs ? mapHostOsToOperatingSystem(hostOs) : null;
+  const manualOs = data.bitcoin?.os
+    ?? mappedHostOs
+    ?? (primaryNode ? inferOsFromDataDir(primaryNode.dataDir) : null);
+
+  const handleConfigureManually = () => {
+    if (manualOs) {
+      const networkChanged = data.bitcoin?.network !== undefined
+        && data.bitcoin.network !== selectedNetwork;
+
+      updateData({
+        bitcoin: {
+          ...(data.bitcoin ?? {}),
+          core_version: data.bitcoin?.core_version ?? null,
+          os: manualOs,
+          network: selectedNetwork,
+          customDataDir: data.bitcoin?.customDataDir ?? '',
+          socket_path: networkChanged ? '' : data.bitcoin?.socket_path ?? '',
+          discoveredLogPath: networkChanged ? undefined : data.bitcoin?.discoveredLogPath,
+        },
+      });
+    }
+
+    onNext();
+  };
+
+  const detectedVersionLabel = primaryNode
+    ? detectedCoreVersion
+      ? formatBitcoinCoreVersion(detectedCoreVersion)
+      : rpcVersionToDisplayVersion(primaryNode.version)
+    : null;
+  const detectedNodeSummary = primaryNode && detectedVersionLabel
+    ? `${NETWORK_LABELS[primaryNode.network]} · Bitcoin Core ${detectedVersionLabel}`
     : '';
 
+  const readiness = isDiscovering
+    ? {
+      tone: 'neutral' as const,
+      icon: <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />,
+      title: BITCOIN_MESSAGES.detecting,
+      description: 'Looking for a running node on this device.',
+    }
+    : !hasDiscovered
+      ? {
+        tone: 'warning' as const,
+        icon: <AlertCircle className="h-4 w-4" aria-hidden="true" />,
+        title: 'Bitcoin Core isn’t detected',
+        description: 'Start your node with the command above. If it is already running, wait a moment and check again.',
+      }
+      : isUnsupportedVersion && primaryNode
+        ? {
+          tone: 'destructive' as const,
+          icon: <AlertCircle className="h-4 w-4" aria-hidden="true" />,
+          title: BITCOIN_MESSAGES.unsupportedHeading,
+          description: `${BITCOIN_MESSAGES.unsupportedDetected(rpcVersionToDisplayVersion(primaryNode.version))} ${BITCOIN_MESSAGES.upgradeNode}`,
+        }
+        : isSyncing
+          ? {
+            tone: 'warning' as const,
+            icon: <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />,
+            title: BITCOIN_MESSAGES.syncingHeading,
+            description: `${detectedNodeSummary}. Keep Bitcoin Core running; this page will update when the initial sync finishes.`,
+          }
+          : ipcStatus === 'checking'
+            ? {
+              tone: 'neutral' as const,
+              icon: <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />,
+              title: 'Node synced. Checking IPC…',
+              description: detectedNodeSummary,
+            }
+            : ipcStatus === 'valid'
+              ? {
+                tone: 'success' as const,
+                icon: <CheckCircle2 className="h-4 w-4" aria-hidden="true" />,
+                title: 'Bitcoin Core is ready',
+                description: `${detectedNodeSummary}. IPC verified. Continuing automatically…`,
+              }
+              : ipcStatus === 'invalid'
+                ? {
+                  tone: 'warning' as const,
+                  icon: <AlertCircle className="h-4 w-4" aria-hidden="true" />,
+                  title: 'IPC connection not found',
+                  description: 'Restart Bitcoin Core with the command above, or configure a custom socket path.',
+                }
+                : {
+                  tone: 'success' as const,
+                  icon: <CheckCircle2 className="h-4 w-4" aria-hidden="true" />,
+                  title: BITCOIN_MESSAGES.detectedHeading,
+                  description: `${detectedNodeSummary}. Continue to configure the connection.`,
+                };
+
+  const readinessClasses = {
+    neutral: 'border-border bg-muted/50 text-muted-foreground',
+    warning: 'border-warning/20 bg-warning/[0.08] text-warning',
+    destructive: 'border-destructive/20 bg-destructive/[0.08] text-destructive',
+    success: 'border-success/20 bg-success/10 text-success',
+  }[readiness.tone];
+
+  const canConfigureManually = !hostOsLoading
+    && !isDiscovering
+    && !isSyncing
+    && !isUnsupportedVersion
+    && ipcStatus !== 'checking'
+    && ipcStatus !== 'valid';
+  const canRetry = !isDiscovering && (!hasDiscovered || ipcStatus === 'invalid');
+
   return (
-    <div className="space-y-8 text-center">
-      <div>
+    <div className="space-y-6">
+      <div className="text-center">
         <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">
           {BITCOIN_MESSAGES.prereqHeading}
         </h2>
-        <p className="text-lg text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           {BITCOIN_MESSAGES.versionRequirement}
         </p>
-        <p className="text-sm text-muted-foreground mt-3">
-          {BITCOIN_MESSAGES.platformInfo}
+        <p className="mt-2 text-xs text-muted-foreground">
+          {BITCOIN_MESSAGES.platformInfo}{' '}
+          <a
+            href="https://github.com/bitcoin-core/libmultiprocess/pull/231"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            {BITCOIN_MESSAGES.windowsSupport}
+            <ExternalLink className="w-3 h-3" aria-hidden="true" />
+          </a>
         </p>
       </div>
 
-      <div className="text-left space-y-3">
-        {/* Step 1 */}
-        <div className="flex gap-4 p-4 rounded-xl border border-border bg-card">
-          <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0 mt-0.5">1</div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm mb-1">
-              {BITCOIN_MESSAGES.installStep}
-            </div>
-            <p className="text-xs text-muted-foreground mb-2">
-              {BITCOIN_MESSAGES.upgradePrompt}
-            </p>
+      <div className="rounded-xl border border-border bg-card overflow-hidden text-left">
+        <InstructionStep
+          number={1}
+          title={BITCOIN_MESSAGES.installStep}
+          description={BITCOIN_MESSAGES.upgradePrompt}
+        >
+          <div className="mt-2">
             <a
               href="https://bitcoincore.org/en/download/"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
             >
-              bitcoincore.org/en/download
+              Download Bitcoin Core
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
             </a>
-            <div className="mt-2">
-              <a
-                href="https://github.com/bitcoin-core/libmultiprocess/pull/231"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
-              >
-                Windows IPC support is still in progress
-                <ExternalLink className="w-3 h-3" aria-hidden="true" />
-              </a>
-            </div>
           </div>
-        </div>
+        </InstructionStep>
 
-        {/* Step 2 */}
-        <div className="flex gap-4 p-4 rounded-xl border border-border bg-card">
-          <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0 mt-0.5">2</div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm mb-3">
-              Start with IPC enabled
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Mainnet</p>
-              <div className="relative">
-                <pre
-                  className="bg-muted/60 p-3 pr-12 rounded-lg text-xs font-mono overflow-x-auto"
-                  aria-label="Mainnet start command"
-                >
-                  {mainnetCmd}
-                </pre>
-                <button
-                  type="button"
-                  onClick={() => copy(mainnetCmd, 'mainnet')}
-                  aria-label={copiedMainnet ? 'Copied!' : 'Copy mainnet command'}
-                  aria-live="polite"
-                  className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-background/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors"
-                >
-                  {copiedMainnet
-                    ? <Check className="w-4 h-4 text-green-500" aria-hidden="true" />
-                    : <Copy className="w-4 h-4 text-muted-foreground" aria-hidden="true" />}
-                </button>
-              </div>
-
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider pt-1">Testnet4</p>
-              <div className="relative">
-                <pre
-                  className="bg-muted/60 p-3 pr-12 rounded-lg text-xs font-mono overflow-x-auto"
-                  aria-label="Testnet4 start command"
-                >
-                  {testnetCmd}
-                </pre>
-                <button
-                  type="button"
-                  onClick={() => copy(testnetCmd, 'testnet')}
-                  aria-label={copiedTestnet ? 'Copied!' : 'Copy testnet4 command'}
-                  aria-live="polite"
-                  className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-background/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors"
-                >
-                  {copiedTestnet
-                    ? <Check className="w-4 h-4 text-green-500" aria-hidden="true" />
-                    : <Copy className="w-4 h-4 text-muted-foreground" aria-hidden="true" />}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Step 3 */}
-        <div className="flex gap-4 p-4 rounded-xl border border-border bg-card">
-          <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-mono flex-shrink-0 mt-0.5">3</div>
-          <div className="flex-1">
-            <div className="font-medium text-sm">
-              Wait for initial sync
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {isDiscovering && (
-        <div
-          className="p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground flex gap-3 items-center justify-center"
-          role="status"
-          aria-live="polite"
+        <InstructionStep
+          number={2}
+          title="Start your node with IPC"
+          description="Choose your network, then run the command in a terminal."
         >
-          <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" aria-hidden="true" />
-          <span>{BITCOIN_MESSAGES.detecting}</span>
-        </div>
-      )}
-
-      {hasDiscovered && primaryNode && isUnsupportedVersion && (
-        <div
-          className="p-3 rounded-lg bg-destructive/[0.08] border border-destructive/20 text-sm text-destructive flex gap-3 items-start"
-          role="alert"
-          aria-live="assertive"
-        >
-          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="text-left">
-            <span className="font-medium">{BITCOIN_MESSAGES.unsupportedHeading}</span>
-            <p className="text-xs mt-1 opacity-80">
-              {BITCOIN_MESSAGES.unsupportedDetected(rpcVersionToDisplayVersion(primaryNode.version))}
-            </p>
-            <p className="text-xs mt-2">
-              {BITCOIN_MESSAGES.upgradeNode}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {hasDiscovered && primaryNode && !isUnsupportedVersion && isSyncing && (
-        <div
-          className="p-3 rounded-lg bg-warning/[0.08] border border-warning/20 text-sm text-warning flex gap-3 items-start"
-          role="status"
-          aria-live="polite"
-        >
-          <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="text-left">
-            <span className="font-medium">{BITCOIN_MESSAGES.syncingHeading}</span>
-            <p className="text-xs mt-1 opacity-80">
-              Network: {primaryNode.network} • Version: {detectedCoreVersion ? formatBitcoinCoreVersion(detectedCoreVersion) : rpcVersionToDisplayVersion(primaryNode.version)} • Syncing...
-            </p>
-            <p className="text-xs mt-2">
-              Your node is still downloading the blockchain. Please wait for the initial block download to finish before continuing.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {hasDiscovered && primaryNode && !isUnsupportedVersion && !isSyncing && detectedCoreVersion && (
-        <div
-          className="p-3 rounded-lg bg-success/10 border border-success/20 text-sm text-success flex gap-3 items-start"
-          role="status"
-          aria-live="polite"
-        >
-          <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="text-left">
-            <span className="font-medium">{BITCOIN_MESSAGES.detectedHeading}</span>
-            <p className="text-xs mt-1 opacity-80">
-              {detectedCoreVersion !== null
-                ? `Network: ${primaryNode.network} • Version: ${formatBitcoinCoreVersion(detectedCoreVersion)} • Synced`
-                : `Network: ${primaryNode.network} • Version: ${rpcVersionToDisplayVersion(primaryNode.version)} • Synced`}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {ipcStatus === 'checking' && (
-        <div
-          className="p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground flex gap-3 items-center justify-center"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" aria-hidden="true" />
-          <span>Verifying IPC socket...</span>
-        </div>
-      )}
-
-      {ipcStatus === 'valid' && (
-        <div
-          className="p-3 rounded-lg bg-success/10 border border-success/20 text-sm text-success flex gap-3 items-start"
-          role="status"
-          aria-live="polite"
-        >
-          <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="text-left">
-            <span className="font-medium">IPC socket verified — proceeding automatically...</span>
-            <p className="text-xs mt-1 opacity-80">
-              Socket at {autoSocketPath} is listening
-            </p>
-          </div>
-        </div>
-      )}
-
-      {ipcStatus === 'invalid' && (
-        <div
-          className="p-3 rounded-lg bg-warning/[0.08] border border-warning/20 text-sm text-warning flex gap-3 items-start"
-          role="alert"
-          aria-live="assertive"
-        >
-          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="text-left">
-            <span className="font-medium">Bitcoin Core RPC detected but IPC socket not found</span>
-            <p className="text-xs mt-1 opacity-80">
-              The IPC socket was not found at the expected path. Continue to configure the connection manually.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {!isDiscovering && !hasDiscovered && (
-        <div
-          className="p-3 rounded-lg bg-warning/[0.08] border border-warning/20 text-sm text-warning flex gap-3 items-start"
-          role="alert"
-          aria-live="assertive"
-        >
-          <div className="flex-1 min-w-0 space-y-3">
-            <span className="block">
-              We couldn’t automatically detect your Bitcoin Core node. If it’s still starting, wait a moment and retry. If it’s already running, you can continue and enter the connection details manually.
-            </span>
+          <BitcoinNetworkSelector
+            value={selectedNetwork}
+            onChange={setSelectedNetwork}
+            className="mt-3"
+          />
+          <div className="relative mt-3">
+            <pre
+              className="bg-muted/60 p-3 pr-12 rounded-lg text-xs font-mono overflow-x-auto"
+              aria-label={`${NETWORK_LABELS[selectedNetwork]} start command`}
+            >
+              {START_COMMANDS[selectedNetwork]}
+            </pre>
             <button
               type="button"
-              onClick={onRetryDiscovery}
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/30 bg-background px-3 text-xs font-medium text-warning transition-colors hover:bg-warning/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/30"
+              onClick={() => copy(selectedNetwork)}
+              aria-label={copiedNetwork === selectedNetwork ? 'Copied!' : `Copy ${NETWORK_LABELS[selectedNetwork]} command`}
+              aria-live="polite"
+              className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-background/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors"
             >
-              <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
-              Retry
+              {copiedNetwork === selectedNetwork
+                ? <Check className="w-4 h-4 text-success" aria-hidden="true" />
+                : <Copy className="w-4 h-4 text-muted-foreground" aria-hidden="true" />}
             </button>
           </div>
+        </InstructionStep>
+
+        <InstructionStep
+          number={3}
+          title="Wait for the node to sync"
+          description="Keep Bitcoin Core running until the initial block download is complete. We’ll detect when it is ready."
+        />
+      </div>
+
+      <div
+        className={`flex gap-3 rounded-xl border p-4 text-sm ${readinessClasses}`}
+        role={readiness.tone === 'destructive' ? 'alert' : 'status'}
+        aria-live={readiness.tone === 'destructive' ? 'assertive' : 'polite'}
+      >
+        <span className="mt-0.5 flex-shrink-0">{readiness.icon}</span>
+        <div className="min-w-0 text-left">
+          <p className="font-medium">{readiness.title}</p>
+          <p className="mt-1 text-xs leading-relaxed opacity-80">{readiness.description}</p>
+        </div>
+      </div>
+
+      {(canConfigureManually || canRetry) && (
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {!hasDiscovered && canRetry && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-primary px-6 font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <RotateCw className="h-4 w-4" aria-hidden="true" />
+              Check again
+            </button>
+          )}
+
+          {canConfigureManually && (
+            <button
+              type="button"
+              onClick={handleConfigureManually}
+              className={hasDiscovered
+                ? 'h-11 px-8 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors font-medium'
+                : 'h-11 px-5 rounded-full text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors font-medium'}
+            >
+              {hasDiscovered ? 'Configure connection' : 'Configure manually'}
+            </button>
+          )}
+
+          {hasDiscovered && canRetry && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="inline-flex h-11 items-center gap-2 rounded-full border border-border bg-background px-5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <RotateCw className="h-4 w-4" aria-hidden="true" />
+              Check again
+            </button>
+          )}
         </div>
       )}
-
-      <div className="flex justify-center">
-        <button
-          type="button"
-          onClick={onNext}
-          disabled={isDiscovering || isSyncing || isUnsupportedVersion || ipcStatus === 'checking'}
-          className="h-11 px-10 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Configure Connection
-        </button>
-      </div>
     </div>
   );
 }
