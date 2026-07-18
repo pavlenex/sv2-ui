@@ -14,6 +14,8 @@ export interface KnownPool {
   logoUrl?: string;
   logoOnDark?: boolean;
   monogram?: string;
+  invertLogoInDarkMode?: boolean;
+  logoScale?: number;
 }
 
 export const POOL_MINING_NO_JD: KnownPool[] = [
@@ -51,6 +53,7 @@ export const SOLO_POOLS: KnownPool[] = [
     authority_public_key: '9bCoFxTszKCuffyywH5uS5o6WcU4vsjTH2axxc7wE86y2HhvULU',
     description: 'Blitzpool',
     logoUrl: '/blitzpool.svg',
+    invertLogoInDarkMode: true,
   },
   {
     id: 'ckpool',
@@ -78,6 +81,7 @@ export const SOLO_POOLS: KnownPool[] = [
     authority_public_key: '9amd6GUzTaGXASESCa75c9Rx3vWYihRyLUAE3Vrmqwgm3T9jtxN',
     description: 'NexusPool',
     logoUrl: '/nexuspool-logo.png',
+    logoScale: 1.4,
   },
   {
     id: 'publicpool',
@@ -87,6 +91,7 @@ export const SOLO_POOLS: KnownPool[] = [
     authority_public_key: '9c4zpyJ2ndm4e8sP2uNc1VNCGxYjqaxWS6wUCjk8zFj6njFquH6',
     description: 'PublicPool',
     logoUrl: '/public-pool-logo.svg',
+    logoScale: 1.15,
   },
   {
     id: 'pyblock',

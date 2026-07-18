@@ -316,7 +316,14 @@ function SelectedPoolSummary({
   return (
     <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
       <div className="flex min-w-0 items-center gap-3">
-        <PoolIcon logoUrl={preset?.logoUrl} logoOnDark={preset?.logoOnDark} monogram={preset?.monogram} name={displayName} />
+        <PoolIcon
+          logoUrl={preset?.logoUrl}
+          logoOnDark={preset?.logoOnDark}
+          monogram={preset?.monogram}
+          invertLogoInDarkMode={preset?.invertLogoInDarkMode}
+          logoScale={preset?.logoScale}
+          name={displayName}
+        />
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{displayName}</div>
           <div className="truncate font-mono text-xs text-muted-foreground">
@@ -410,7 +417,14 @@ function FallbackIdentitySection({
             <div key={`fallback-identity-${index}`} className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <PoolIcon logoUrl={selectedPreset?.logoUrl} logoOnDark={selectedPreset?.logoOnDark} monogram={selectedPreset?.monogram} name={displayName} />
+                  <PoolIcon
+                    logoUrl={selectedPreset?.logoUrl}
+                    logoOnDark={selectedPreset?.logoOnDark}
+                    monogram={selectedPreset?.monogram}
+                    invertLogoInDarkMode={selectedPreset?.invertLogoInDarkMode}
+                    logoScale={selectedPreset?.logoScale}
+                    name={displayName}
+                  />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{displayName}</div>
                     <div className="truncate font-mono text-xs text-muted-foreground">
@@ -525,7 +539,14 @@ function PoolPriorityList({
               </button>
 
               <div className="flex min-w-0 items-center gap-4">
-                <PoolIcon logoUrl={preset?.logoUrl} logoOnDark={preset?.logoOnDark} monogram={preset?.monogram} name={displayName} />
+                <PoolIcon
+                  logoUrl={preset?.logoUrl}
+                  logoOnDark={preset?.logoOnDark}
+                  monogram={preset?.monogram}
+                  invertLogoInDarkMode={preset?.invertLogoInDarkMode}
+                  logoScale={preset?.logoScale}
+                  name={displayName}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-medium text-primary">{displayName}</span>
@@ -618,7 +639,14 @@ function PoolPriorityList({
               </div>
             )}
             <div className="flex items-start gap-4">
-              <PoolIcon logoUrl={pool.logoUrl} logoOnDark={pool.logoOnDark} monogram={pool.monogram} name={pool.name} />
+              <PoolIcon
+                logoUrl={pool.logoUrl}
+                logoOnDark={pool.logoOnDark}
+                monogram={pool.monogram}
+                invertLogoInDarkMode={pool.invertLogoInDarkMode}
+                logoScale={pool.logoScale}
+                name={pool.name}
+              />
               <div className="flex-1 min-w-0 pr-8">
                 <div className="font-medium text-sm mb-1">{pool.name}</div>
                 {pool.address && (

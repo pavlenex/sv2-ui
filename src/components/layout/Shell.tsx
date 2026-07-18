@@ -195,6 +195,8 @@ export function Shell({
                           logoUrl={connectedPool.logoUrl}
                           logoOnDark={connectedPool.logoOnDark}
                           monogram={connectedPool.monogram}
+                          invertLogoInDarkMode={connectedPool.invertLogoInDarkMode}
+                          logoScale={connectedPool.logoScale}
                           name={connectedPool.name}
                           className="h-5 w-5 rounded-md"
                           imageClassName="h-3.5 w-3.5"
