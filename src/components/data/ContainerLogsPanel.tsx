@@ -22,6 +22,18 @@ function buildDownloadContent(lines: ContainerLogLine[]): string {
     .join('\n');
 }
 
+function getLogColorClass(line: ContainerLogLine) {
+  if (line.stream === 'stderr') return 'text-red-400';
+  const msg = line.message.toUpperCase();
+  if (msg.includes('ERROR ') || msg.includes('FATAL ') || msg.includes('EXCEPTION') || msg.includes('LEVEL=ERROR')) {
+    return 'text-red-400';
+  }
+  if (msg.includes('WARN ') || msg.includes('LEVEL=WARN')) {
+    return 'text-yellow-400';
+  }
+  return 'text-green-300/90';
+}
+
 export function ContainerLogsPanel({ lines, isLoading, isJdMode }: ContainerLogsPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -99,7 +111,7 @@ export function ContainerLogsPanel({ lines, isLoading, isJdMode }: ContainerLogs
             key={`${line.container}-${line.timestamp ?? ''}-${i}`}
             className={cn(
               'flex gap-2 min-w-0 py-px',
-              line.stream === 'stderr' ? 'text-red-400' : 'text-green-300/90'
+              getLogColorClass(line)
             )}
           >
             {line.timestamp && (
