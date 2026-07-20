@@ -31,8 +31,8 @@ function isValidAuthorityPublicKey(value: unknown): value is string {
 }
 
 export function getPoolConfigError(pool: PoolConfig, label: string): string | null {
-  if (typeof pool.name !== 'string' || pool.name.length > MAX_POOL_NAME_LENGTH) {
-    return `${label} name must be at most ${MAX_POOL_NAME_LENGTH} characters`;
+  if (typeof pool.name !== 'string' || pool.name.length === 0 || pool.name.length > MAX_POOL_NAME_LENGTH) {
+    return `${label} name is required and must be at most ${MAX_POOL_NAME_LENGTH} characters`;
   }
   if (!isSafeBoundedString(pool.address, MAX_POOL_ADDRESS_LENGTH)) {
     return `${label} address is required and cannot contain quotes, backslashes, control characters, or surrounding whitespace`;

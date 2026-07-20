@@ -15,6 +15,15 @@ test('accepts a complete pool configuration', () => {
   assert.equal(getPoolConfigError(VALID_POOL, 'Primary pool'), null);
 });
 
+test('rejects empty and oversized pool names', () => {
+  for (const name of ['', 'a'.repeat(129)]) {
+    assert.match(
+      getPoolConfigError({ ...VALID_POOL, name }, 'Primary pool') ?? '',
+      /name is required/i,
+    );
+  }
+});
+
 test('rejects TOML-breaking pool addresses', () => {
   for (const address of ['pool.example.com"\nverify_payout = false', 'pool.example.com\\evil', 'pool.example.com\n']) {
     assert.match(
