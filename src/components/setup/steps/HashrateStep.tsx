@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { StepProps } from '../types';
 import { Check, ChevronDown, Settings2 } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
+import {
+  AdvancedMiningConfigForm,
+  createAdvancedMiningConfigValues,
+  isAdvancedMiningConfigValid,
+  parseAdvancedMiningConfigValues,
+} from '@/components/mining/AdvancedMiningConfigForm';
 
 interface HashratePreset {
   id: string;
@@ -17,19 +22,6 @@ const HASHRATE_PRESETS: HashratePreset[] = [
   { id: 'custom',      label: 'Custom',               hashrate: 0,                   description: 'Enter your own value' },
 ];
 
-const DEFAULT_SHARES_PER_MINUTE = 6;
-const DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE = 4;
-
-function isPositiveNumber(value: string): boolean {
-  const parsed = Number(value);
-  return value.trim() !== '' && Number.isFinite(parsed) && parsed > 0;
-}
-
-function isPositiveInteger(value: string): boolean {
-  const parsed = Number(value);
-  return isPositiveNumber(value) && Number.isInteger(parsed);
-}
-
 function formatHashrateDisplay(hashrate: number): string {
   if (hashrate >= 1e15) return `${(hashrate / 1e15).toFixed(2)} PH/s`;
   if (hashrate >= 1e12) return `${(hashrate / 1e12).toFixed(2)} TH/s`;
@@ -41,9 +33,6 @@ function formatHashrateDisplay(hashrate: number): string {
 export function HashrateStep({ data, updateData, onNext }: StepProps) {
   const isSoloPool = data.miningMode === 'solo' && data.mode === 'no-jd';
   const existingHashrate = data.translator?.min_hashrate || 0;
-  const existingSharesPerMinute = data.translator?.shares_per_minute || DEFAULT_SHARES_PER_MINUTE;
-  const existingDownstreamExtranonce2Size =
-    data.translator?.downstream_extranonce2_size || DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE;
 
   const getInitialPreset = () => {
     if (!existingHashrate) return 'mid-asic';
@@ -75,11 +64,9 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
   });
   const [inputError, setInputError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [verifyPayout, setVerifyPayout] = useState(data.translator?.verify_payout ?? true);
-  const [sharesPerMinute, setSharesPerMinute] = useState(String(existingSharesPerMinute));
-  const [downstreamExtranonce2Size, setDownstreamExtranonce2Size] = useState(
-    String(existingDownstreamExtranonce2Size),
-  );
+  const [advancedConfig, setAdvancedConfig] = useState(() => (
+    createAdvancedMiningConfigValues(data.translator)
+  ));
 
   const syncCustomInputToRaw = (raw: number) => {
     const { multiplier } = getAutoUnit(raw);
@@ -122,25 +109,23 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
     selectedPreset === 'custom' ? rawHashrate : (HASHRATE_PRESETS.find(p => p.id === selectedPreset)?.hashrate || 0);
 
   const hashrate = getHashrateValue();
-  const advancedIsValid =
-    isPositiveNumber(sharesPerMinute) &&
-    isPositiveInteger(downstreamExtranonce2Size);
+  const advancedIsValid = isAdvancedMiningConfigValid(advancedConfig);
 
   useEffect(() => {
+    const parsedAdvancedConfig = parseAdvancedMiningConfigValues(advancedConfig);
     updateData({
       translator: {
         enable_vardiff: true,
         aggregate_channels: data.translator?.aggregate_channels ?? false,
-        ...(isSoloPool ? { verify_payout: verifyPayout } : {}),
+        ...(isSoloPool ? { verify_payout: parsedAdvancedConfig.verifyPayout } : {}),
         min_hashrate: hashrate,
-        shares_per_minute: Number(sharesPerMinute) || DEFAULT_SHARES_PER_MINUTE,
-        downstream_extranonce2_size:
-          Number(downstreamExtranonce2Size) || DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+        shares_per_minute: parsedAdvancedConfig.sharesPerMinute,
+        downstream_extranonce2_size: parsedAdvancedConfig.downstreamExtranonce2Size,
       },
     });
   // intentionally excluded: data.translator and updateData cause infinite loop when included
     // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [hashrate, sharesPerMinute, downstreamExtranonce2Size, verifyPayout, isSoloPool]);
+}, [hashrate, advancedConfig, isSoloPool]);
 
   return (
     <div className="space-y-8">
@@ -251,66 +236,13 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
         </button>
 
         {showAdvanced && (
-          <div className="border-t border-border p-4 space-y-4">
-            {isSoloPool && (
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <p id="verify-payout-label" className="text-sm font-medium">Coinbase Verification</p>
-                  <p id="verify-payout-desc" className="text-xs text-muted-foreground">
-                    Verify that your payout address is included in the pool&apos;s coinbase transaction.
-                  </p>
-                </div>
-                <Switch
-                  id="verify-payout-switch"
-                  checked={verifyPayout}
-                  onCheckedChange={setVerifyPayout}
-                  aria-labelledby="verify-payout-label"
-                  aria-describedby="verify-payout-desc"
-                />
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="shares-per-minute" className="block text-sm font-medium mb-2">
-                Shares Per Minute
-              </label>
-              <input
-                id="shares-per-minute"
-                type="number"
-                min="0.1"
-                step="0.1"
-                value={sharesPerMinute}
-                onChange={(e) => setSharesPerMinute(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-              />
-              {!isPositiveNumber(sharesPerMinute) && (
-                <p className="text-xs text-destructive mt-1">Enter a value greater than 0.</p>
-              )}
-              <p className="text-xs text-muted-foreground mt-2">
-                Target share rate used by variable difficulty mechanism by the Stratum V2 Client.
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="downstream-extranonce2-size" className="block text-sm font-medium mb-2">
-                Downstream Extranonce2 Size
-              </label>
-              <input
-                id="downstream-extranonce2-size"
-                type="number"
-                min="1"
-                step="1"
-                value={downstreamExtranonce2Size}
-                onChange={(e) => setDownstreamExtranonce2Size(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-              />
-              {!isPositiveInteger(downstreamExtranonce2Size) && (
-                <p className="text-xs text-destructive mt-1">Enter a whole number greater than 0.</p>
-              )}
-              <p className="text-xs text-muted-foreground mt-2">
-                Extranonce2 bytes assigned to downstream SV1 connections.
-              </p>
-            </div>
+          <div className="border-t border-border p-4">
+            <AdvancedMiningConfigForm
+              idPrefix="setup-advanced-mining"
+              value={advancedConfig}
+              onChange={setAdvancedConfig}
+              showCoinbaseVerification={isSoloPool}
+            />
           </div>
         )}
       </div>

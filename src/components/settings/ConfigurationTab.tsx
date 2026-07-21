@@ -4,8 +4,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { PoolIcon } from '@/components/ui/pool-icon';
+import {
+  AdvancedMiningConfigForm,
+  createAdvancedMiningConfigValues,
+  isAdvancedMiningConfigValid,
+  parseAdvancedMiningConfigValues,
+  type AdvancedMiningConfigValues,
+} from '@/components/mining/AdvancedMiningConfigForm';
 import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { useControlApi, getCurrentConfig } from '@/hooks/useControlApi';
 import {
@@ -91,16 +97,6 @@ function snapDonation(value: number): number {
   return nearest ?? value;
 }
 
-function isPositiveNumber(value: string): boolean {
-  const parsed = Number(value);
-  return value.trim() !== '' && Number.isFinite(parsed) && parsed > 0;
-}
-
-function isPositiveInteger(value: string): boolean {
-  const parsed = Number(value);
-  return isPositiveNumber(value) && Number.isInteger(parsed);
-}
-
 /**
  * Configuration tab for Settings page.
  * Shows current setup and allows inline editing of pool and template mode.
@@ -135,11 +131,7 @@ export function ConfigurationTab() {
   const [isCustomPool, setIsCustomPool] = useState(false);
   const [editMode, setEditMode] = useState<'jd' | 'no-jd' | null>(null);
   const [editSignature, setEditSignature] = useState<string>('');
-  const [editAdvanced, setEditAdvanced] = useState<{
-    shares_per_minute: string;
-    downstream_extranonce2_size: string;
-    verify_payout?: boolean;
-  } | null>(null);
+  const [editAdvanced, setEditAdvanced] = useState<AdvancedMiningConfigValues | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const clearDashboardClientState = () => {
@@ -239,14 +231,7 @@ export function ConfigurationTab() {
 
   const startEditAdvanced = () => {
     if (!config?.translator) return;
-    const configIsSoloPool = config.miningMode === 'solo' && config.mode === 'no-jd';
-    setEditAdvanced({
-      shares_per_minute: String(config.translator.shares_per_minute ?? DEFAULT_SHARES_PER_MINUTE),
-      downstream_extranonce2_size: String(
-        config.translator.downstream_extranonce2_size ?? DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
-      ),
-      ...(configIsSoloPool ? { verify_payout: config.translator.verify_payout ?? true } : {}),
-    });
+    setEditAdvanced(createAdvancedMiningConfigValues(config.translator));
     setEditing('advanced');
   };
 
@@ -279,10 +264,7 @@ export function ConfigurationTab() {
     !getPoolIdentityError(pool, config?.miningMode ?? null, editNetwork)
   ));
   const isSignatureValid = editSignature === '' || isTomlSafeIdentifier(editSignature);
-  const isAdvancedValid =
-    !!editAdvanced &&
-    isPositiveNumber(editAdvanced.shares_per_minute) &&
-    isPositiveInteger(editAdvanced.downstream_extranonce2_size);
+  const isAdvancedValid = !!editAdvanced && isAdvancedMiningConfigValid(editAdvanced);
 
   const saveEdit = () => {
     if (!config) return;
@@ -311,13 +293,14 @@ export function ConfigurationTab() {
     } else if (editing === 'advanced') {
       if (!isAdvancedValid || !config.translator || !editAdvanced) return;
       const configIsSoloPool = config.miningMode === 'solo' && config.mode === 'no-jd';
+      const parsedAdvancedConfig = parseAdvancedMiningConfigValues(editAdvanced);
       updated.translator = {
         enable_vardiff: true,
         aggregate_channels: config.translator.aggregate_channels,
-        ...(configIsSoloPool ? { verify_payout: editAdvanced.verify_payout ?? true } : {}),
+        ...(configIsSoloPool ? { verify_payout: parsedAdvancedConfig.verifyPayout } : {}),
         min_hashrate: config.translator.min_hashrate,
-        shares_per_minute: Number(editAdvanced.shares_per_minute),
-        downstream_extranonce2_size: Number(editAdvanced.downstream_extranonce2_size),
+        shares_per_minute: parsedAdvancedConfig.sharesPerMinute,
+        downstream_extranonce2_size: parsedAdvancedConfig.downstreamExtranonce2Size,
       };
     }
 
@@ -827,63 +810,12 @@ export function ConfigurationTab() {
               }
               editContent={
                 editAdvanced && (
-                  <div className="space-y-4">
-                    {isSoloPool && (
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="space-y-0.5">
-                          <p id="edit-verify-payout-label" className="text-xs font-medium">
-                            Coinbase Verification
-                          </p>
-                          <p id="edit-verify-payout-desc" className="text-xs text-muted-foreground">
-                            Verify that your payout address is included in the pool&apos;s coinbase transaction.
-                          </p>
-                        </div>
-                        <Switch
-                          id="edit-verify-payout-switch"
-                          checked={editAdvanced.verify_payout ?? true}
-                          onCheckedChange={(checked) => setEditAdvanced({ ...editAdvanced, verify_payout: checked })}
-                          aria-labelledby="edit-verify-payout-label"
-                          aria-describedby="edit-verify-payout-desc"
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <label htmlFor="edit-shares-per-minute" className="block text-xs font-medium mb-1">
-                        Shares Per Minute
-                      </label>
-                      <input
-                        id="edit-shares-per-minute"
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        value={editAdvanced.shares_per_minute}
-                        onChange={(e) => setEditAdvanced({ ...editAdvanced, shares_per_minute: e.target.value })}
-                        className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-                      />
-                      {!isPositiveNumber(editAdvanced.shares_per_minute) && (
-                        <p className="text-xs text-destructive mt-1">Enter a value greater than 0.</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label htmlFor="edit-downstream-extranonce2-size" className="block text-xs font-medium mb-1">
-                        Downstream Extranonce2 Size
-                      </label>
-                      <input
-                        id="edit-downstream-extranonce2-size"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={editAdvanced.downstream_extranonce2_size}
-                        onChange={(e) => setEditAdvanced({ ...editAdvanced, downstream_extranonce2_size: e.target.value })}
-                        className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
-                      />
-                      {!isPositiveInteger(editAdvanced.downstream_extranonce2_size) && (
-                        <p className="text-xs text-destructive mt-1">Enter a whole number greater than 0.</p>
-                      )}
-                    </div>
-                  </div>
+                  <AdvancedMiningConfigForm
+                    idPrefix="settings-advanced-mining"
+                    value={editAdvanced}
+                    onChange={setEditAdvanced}
+                    showCoinbaseVerification={isSoloPool}
+                  />
                 )
               }
             />
