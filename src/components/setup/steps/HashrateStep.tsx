@@ -40,6 +40,7 @@ function formatHashrateDisplay(hashrate: number): string {
 
 export function HashrateStep({ data, updateData, onNext }: StepProps) {
   const isSoloPool = data.miningMode === 'solo' && data.mode === 'no-jd';
+  const isPoolJdMode = data.miningMode === 'pool' && data.mode === 'jd';
   const existingHashrate = data.translator?.min_hashrate || 0;
   const existingSharesPerMinute = data.translator?.shares_per_minute || DEFAULT_SHARES_PER_MINUTE;
   const existingDownstreamExtranonce2Size =
@@ -309,6 +310,7 @@ export function HashrateStep({ data, updateData, onNext }: StepProps) {
               )}
               <p className="text-xs text-muted-foreground mt-2">
                 Extranonce2 bytes assigned to downstream SV1 connections.
+                {isPoolJdMode && ' The JDC adds a 2-byte routing prefix; for a pool limit of 4, enter 2.'}
               </p>
             </div>
           </div>

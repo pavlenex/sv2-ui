@@ -264,6 +264,10 @@ export function generateJdcConfig(data: SetupData): string | null {
     normalizedData.translator?.shares_per_minute,
     DEFAULT_SHARES_PER_MINUTE,
   ).toFixed(1);
+  const downstreamExtranonce2Size = positiveInteger(
+    normalizedData.translator?.downstream_extranonce2_size,
+    DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+  );
   const shareBatchSize = '5';
   // Fee threshold and min interval for template provider
   const feeThreshold = '1000';
@@ -304,6 +308,7 @@ cert_validity_sec = 3600
 # Shares configuration
 shares_per_minute = ${sharesPerMinute}
 share_batch_size = ${shareBatchSize}
+reserved_downstream_rollable_extranonce_size = ${downstreamExtranonce2Size}
 
 # JDC mode: FULLTEMPLATE, COINBASEONLY, or SOLOMINING
 mode = "${isSovereignSolo ? 'SOLOMINING' : 'FULLTEMPLATE'}"

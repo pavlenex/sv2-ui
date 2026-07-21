@@ -679,7 +679,7 @@ export function ConfigurationTab() {
                           className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
                         />
                       </div>
-                      {isJdMode && (
+                      {isJdMode && !isSovereignSolo && (
                         <div>
                           <label htmlFor="edit-pool-jds-port" className="block text-xs font-medium mb-1">
                             JD Port (optional)
@@ -913,6 +913,11 @@ export function ConfigurationTab() {
                       />
                       {!isPositiveInteger(editAdvanced.downstream_extranonce2_size) && (
                         <p className="text-xs text-destructive mt-1">Enter a whole number greater than 0.</p>
+                      )}
+                      {isJdMode && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          The JDC adds a 2-byte routing prefix; for a pool limit of 4, enter 2.
+                        </p>
                       )}
                     </div>
                   </div>

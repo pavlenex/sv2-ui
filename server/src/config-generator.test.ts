@@ -149,7 +149,21 @@ test('jdc config uses shared shares-per-minute and miner signature', () => {
 
   assert.ok(config);
   assert.match(config, /shares_per_minute = 12\.5/);
+  assert.match(config, /reserved_downstream_rollable_extranonce_size = 8/);
   assert.match(config, /jdc_signature = "custom-miner-tag"/);
+});
+
+test('jdc config reserves the configured downstream extranonce size', () => {
+  const config = generateJdcConfig({
+    ...BASE_DATA_31,
+    translator: {
+      ...BASE_DATA_31.translator!,
+      downstream_extranonce2_size: 2,
+    },
+  });
+
+  assert.ok(config);
+  assert.match(config, /reserved_downstream_rollable_extranonce_size = 2/);
 });
 
 test('normalization backfills advanced defaults for old saved configs', () => {
