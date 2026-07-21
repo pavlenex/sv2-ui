@@ -266,6 +266,9 @@ export function ConfigurationTab() {
     Number.isInteger(editPool.port) &&
     editPool.port > 0 &&
     editPool.port <= 65535 &&
+    (editPool.jds_port === undefined || (
+      Number.isInteger(editPool.jds_port) && editPool.jds_port > 0 && editPool.jds_port <= 65535
+    )) &&
     !!editPool?.authority_public_key &&
     isValidPoolAuthorityPubkey(editPool.authority_public_key) &&
     !getPoolIdentityError(editPool, config?.miningMode ?? null, editNetwork);
@@ -274,6 +277,9 @@ export function ConfigurationTab() {
     Number.isInteger(pool.port) &&
     pool.port > 0 &&
     pool.port <= 65535 &&
+    (pool.jds_port === undefined || (
+      Number.isInteger(pool.jds_port) && pool.jds_port > 0 && pool.jds_port <= 65535
+    )) &&
     !!pool.authority_public_key &&
     isValidPoolAuthorityPubkey(pool.authority_public_key) &&
     !getPoolIdentityError(pool, config?.miningMode ?? null, editNetwork)
@@ -662,7 +668,9 @@ export function ConfigurationTab() {
                         />
                       </div>
                       <div>
-                        <label htmlFor="edit-pool-port" className="block text-xs font-medium mb-1">Port</label>
+                        <label htmlFor="edit-pool-port" className="block text-xs font-medium mb-1">
+                          {isJdMode ? 'Pool Port' : 'Port'}
+                        </label>
                         <input
                           id="edit-pool-port"
                           type="number"
@@ -671,6 +679,29 @@ export function ConfigurationTab() {
                           className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
                         />
                       </div>
+                      {isJdMode && (
+                        <div>
+                          <label htmlFor="edit-pool-jds-port" className="block text-xs font-medium mb-1">
+                            JD Port (optional)
+                          </label>
+                          <input
+                            id="edit-pool-jds-port"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            value={editPool?.jds_port ?? ''}
+                            onChange={e => setEditPool(prev => prev ? {
+                              ...prev,
+                              jds_port: e.target.value === '' ? undefined : Number(e.target.value),
+                            } : prev)}
+                            placeholder="3334"
+                            className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Only set this when specified by your pool.
+                          </p>
+                        </div>
+                      )}
                       <div>
                         <label htmlFor="edit-pool-pubkey" className="block text-xs font-medium mb-1">Authority Public Key</label>
                         <input
@@ -735,6 +766,7 @@ export function ConfigurationTab() {
                 <FallbackPoolsEdit
                   pools={editFallbackPools ?? []}
                   availablePools={pools}
+                  isJdMode={isJdMode}
                   miningMode={activeMiningMode}
                   network={editNetwork}
                   onChange={setEditFallbackPools}
@@ -1203,12 +1235,14 @@ function SriPoolIdentityEdit({
 function FallbackPoolsEdit({
   pools,
   availablePools,
+  isJdMode,
   miningMode,
   network,
   onChange,
 }: {
   pools: PoolConfig[];
   availablePools: KnownPool[];
+  isJdMode: boolean;
   miningMode: SetupData['miningMode'];
   network: NonNullable<SetupData['bitcoin']>['network'];
   onChange: (pools: PoolConfig[]) => void;
@@ -1275,6 +1309,7 @@ function FallbackPoolsEdit({
           index={index}
           totalPools={pools.length}
           availablePools={availablePools}
+          isJdMode={isJdMode}
           miningMode={miningMode}
           network={network}
           isDragging={draggedIndex === index}
@@ -1328,6 +1363,7 @@ function SettingsFallbackPoolRow({
   index,
   totalPools,
   availablePools,
+  isJdMode,
   miningMode,
   network,
   isDragging,
@@ -1346,6 +1382,7 @@ function SettingsFallbackPoolRow({
   index: number;
   totalPools: number;
   availablePools: KnownPool[];
+  isJdMode: boolean;
   miningMode: SetupData['miningMode'];
   network: NonNullable<SetupData['bitcoin']>['network'];
   isDragging: boolean;
@@ -1523,7 +1560,11 @@ function SettingsFallbackPoolRow({
 
       {isCustom && (
         <div className="border-t border-border bg-background/40 p-3">
-          <div className="grid gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_7rem_minmax(0,1.3fr)]">
+          <div className={`grid gap-2 ${
+            isJdMode
+              ? 'md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_7rem_9rem]'
+              : 'md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_7rem_minmax(0,1.3fr)]'
+          }`}>
             <div>
               <label htmlFor={`fallback-${index}-name`} className="mb-1 block text-xs font-medium text-muted-foreground">
                 Name
@@ -1553,7 +1594,7 @@ function SettingsFallbackPoolRow({
 
             <div>
               <label htmlFor={`fallback-${index}-port`} className="mb-1 block text-xs font-medium text-muted-foreground">
-                Port
+                {isJdMode ? 'Pool Port' : 'Port'}
               </label>
               <input
                 id={`fallback-${index}-port`}
@@ -1564,7 +1605,29 @@ function SettingsFallbackPoolRow({
               />
             </div>
 
-            <div>
+            {isJdMode && (
+              <div>
+                <label htmlFor={`fallback-${index}-jds-port`} className="mb-1 block text-xs font-medium text-muted-foreground">
+                  JD Port (optional)
+                </label>
+                <input
+                  id={`fallback-${index}-jds-port`}
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={pool.jds_port ?? ''}
+                  onChange={(event) => onChange({
+                    ...pool,
+                    jds_port: event.target.value === '' ? undefined : Number(event.target.value),
+                  })}
+                  placeholder="3334"
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">Only set this when specified by your pool.</p>
+              </div>
+            )}
+
+            <div className={isJdMode ? 'md:col-span-4' : undefined}>
               <label htmlFor={`fallback-${index}-pubkey`} className="mb-1 block text-xs font-medium text-muted-foreground">
                 Authority Public Key
               </label>

@@ -52,6 +52,9 @@ function isPoolComplete(
     Number.isInteger(pool.port) &&
     pool.port > 0 &&
     pool.port <= 65535 &&
+    (pool.jds_port === undefined || (
+      Number.isInteger(pool.jds_port) && pool.jds_port > 0 && pool.jds_port <= 65535
+    )) &&
     isValidPoolAuthorityPubkey(pool.authority_public_key) &&
     !getPoolIdentityError(pool, miningMode, network),
   );
@@ -63,6 +66,9 @@ function isPoolConnectionComplete(pool: PoolConfig | null | undefined): boolean 
     Number.isInteger(pool.port) &&
     pool.port > 0 &&
     pool.port <= 65535 &&
+    (pool.jds_port === undefined || (
+      Number.isInteger(pool.jds_port) && pool.jds_port > 0 && pool.jds_port <= 65535
+    )) &&
     isValidPoolAuthorityPubkey(pool.authority_public_key),
   );
 }
@@ -281,6 +287,7 @@ export function PoolConfigStep({ data, updateData, onNext }: PoolConfigStepProps
         <PoolPriorityList
           pools={pools}
           selectedPools={selectedPools}
+          isJdMode={data.mode === 'jd'}
           onTogglePool={toggleKnownPool}
           onToggleCustom={toggleCustomPool}
           onMove={moveSelectedPool}
@@ -459,6 +466,7 @@ function FallbackIdentitySection({
 function PoolPriorityList({
   pools,
   selectedPools,
+  isJdMode,
   onTogglePool,
   onToggleCustom,
   onMove,
@@ -466,6 +474,7 @@ function PoolPriorityList({
 }: {
   pools: KnownPool[];
   selectedPools: PoolConfig[];
+  isJdMode: boolean;
   onTogglePool: (pool: KnownPool) => void;
   onToggleCustom: () => void;
   onMove: (fromIndex: number, toIndex: number) => void;
@@ -605,6 +614,7 @@ function PoolPriorityList({
               <FallbackCustomPoolFields
                 pool={pool}
                 idPrefix={`custom-pool-${index}`}
+                isJdMode={isJdMode}
                 onChange={(nextPool) => onChangeSelectedPool(index, nextPool)}
               />
             )}
@@ -677,10 +687,12 @@ function PoolPriorityList({
 function FallbackCustomPoolFields({
   pool,
   idPrefix,
+  isJdMode,
   onChange,
 }: {
   pool: PoolConfig;
   idPrefix: string;
+  isJdMode: boolean;
   onChange: (pool: PoolConfig) => void;
 }) {
   const updateField = (field: keyof PoolConfig, value: string | number) => {
@@ -694,7 +706,11 @@ function FallbackCustomPoolFields({
 
   return (
     <div className="border-t border-border bg-muted/20 p-3">
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1.4fr)]">
+      <div className={`grid gap-2 ${
+        isJdMode
+          ? 'md:grid-cols-[minmax(0,1fr)_7rem_minmax(0,0.65fr)]'
+          : 'md:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1.4fr)]'
+      }`}>
         <div>
           <label htmlFor={`${idPrefix}-address`} className="mb-1 block text-xs font-medium text-muted-foreground">
             Address
@@ -713,7 +729,7 @@ function FallbackCustomPoolFields({
 
         <div>
           <label htmlFor={`${idPrefix}-port`} className="mb-1 block text-xs font-medium text-muted-foreground">
-            Port
+            {isJdMode ? 'Pool Port' : 'Port'}
           </label>
           <input
             id={`${idPrefix}-port`}
@@ -725,7 +741,29 @@ function FallbackCustomPoolFields({
           />
         </div>
 
-        <div>
+        {isJdMode && (
+          <div>
+            <label htmlFor={`${idPrefix}-jds-port`} className="mb-1 block text-xs font-medium text-muted-foreground">
+              JD Port (optional)
+            </label>
+            <input
+              id={`${idPrefix}-jds-port`}
+              type="number"
+              min={1}
+              max={65535}
+              value={pool.jds_port ?? ''}
+              onChange={(event) => onChange({
+                ...pool,
+                jds_port: event.target.value === '' ? undefined : Number(event.target.value),
+              })}
+              placeholder="3334"
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">Only set this when specified by your pool.</p>
+          </div>
+        )}
+
+        <div className={isJdMode ? 'md:col-span-3' : undefined}>
           <label htmlFor={`${idPrefix}-pubkey`} className="mb-1 block text-xs font-medium text-muted-foreground">
             Authority Public Key
           </label>

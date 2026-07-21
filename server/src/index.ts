@@ -154,6 +154,11 @@ function getPoolConfigError(pool: PoolConfig, label: string): string | null {
   if (!Number.isInteger(pool.port) || pool.port <= 0 || pool.port > 65535) {
     return `${label} port must be between 1 and 65535`;
   }
+  if (pool.jds_port !== undefined && (
+    !Number.isInteger(pool.jds_port) || pool.jds_port <= 0 || pool.jds_port > 65535
+  )) {
+    return `${label} JD port must be between 1 and 65535`;
+  }
   if (!pool.authority_public_key) return `${label} authority public key is required`;
   if (!isTomlSafeIdentifier(pool.user_identity)) {
     return `${label} username is required and cannot contain quotes, backslashes, or control characters`;
