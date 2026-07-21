@@ -99,6 +99,8 @@ export function FallbackIdentitySection({
                   logoUrl={selectedPreset?.logoUrl}
                   logoOnDark={selectedPreset?.logoOnDark}
                   monogram={selectedPreset?.monogram}
+                  invertLogoInDarkMode={selectedPreset?.invertLogoInDarkMode}
+                  logoScale={selectedPreset?.logoScale}
                   name={displayName}
                 />
                 <div className="min-w-0">

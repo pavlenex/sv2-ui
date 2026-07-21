@@ -150,7 +150,14 @@ export function PoolPriorityEditor({
               </button>
 
               <div className="flex min-w-0 items-center gap-4">
-                <PoolIcon logoUrl={preset?.logoUrl} logoOnDark={preset?.logoOnDark} monogram={preset?.monogram} name={displayName} />
+                <PoolIcon
+                  logoUrl={preset?.logoUrl}
+                  logoOnDark={preset?.logoOnDark}
+                  monogram={preset?.monogram}
+                  invertLogoInDarkMode={preset?.invertLogoInDarkMode}
+                  logoScale={preset?.logoScale}
+                  name={displayName}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-medium text-primary">{displayName}</span>
@@ -237,7 +244,14 @@ export function PoolPriorityEditor({
               </div>
             )}
             <div className="flex items-start gap-4">
-              <PoolIcon logoUrl={preset.logoUrl} logoOnDark={preset.logoOnDark} monogram={preset.monogram} name={preset.name} />
+              <PoolIcon
+                logoUrl={preset.logoUrl}
+                logoOnDark={preset.logoOnDark}
+                monogram={preset.monogram}
+                invertLogoInDarkMode={preset.invertLogoInDarkMode}
+                logoScale={preset.logoScale}
+                name={preset.name}
+              />
               <div className="flex-1 min-w-0 pr-8">
                 <div className="font-medium text-sm mb-1">{preset.name}</div>
                 {preset.address && (
