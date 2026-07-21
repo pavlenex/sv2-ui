@@ -11,6 +11,7 @@ import {
   isFullDonationIdentity,
   DEFAULT_SHARES_PER_MINUTE,
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+  DEFAULT_MIN_HASHRATE,
   bitcoinCoreVersionToIpcMajor,
   formatSupportedVersions,
 } from '@sv2-ui/shared';
@@ -137,7 +138,7 @@ export function normalizeSetupData(data: SetupData): SetupData {
       enable_vardiff: data.translator.enable_vardiff,
       aggregate_channels: shouldAggregateTranslatorChannelsForPools([pool, ...fallbackPools]),
       ...(isSoloPool ? { verify_payout: data.translator.verify_payout ?? true } : {}),
-      min_hashrate: data.translator.min_hashrate,
+      min_hashrate: positiveNumber(data.translator.min_hashrate, DEFAULT_MIN_HASHRATE),
       shares_per_minute: positiveNumber(data.translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE),
       downstream_extranonce2_size: positiveInteger(
         data.translator.downstream_extranonce2_size,
@@ -173,7 +174,7 @@ verify_payout = ${verifyPayout}
     : '';
 
   // Min hashrate from user config (default 100 TH/s if not set)
-  const minHashrate = translator.min_hashrate ? `${translator.min_hashrate}.0` : '100_000_000_000_000.0';
+  const minHashrate = `${positiveNumber(translator.min_hashrate, DEFAULT_MIN_HASHRATE)}.0`;
   // Shares per minute target
   const sharesPerMinute = positiveNumber(translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE).toFixed(1);
   const downstreamExtranonce2Size = positiveInteger(

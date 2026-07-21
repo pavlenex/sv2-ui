@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { PoolIcon } from '@/components/ui/pool-icon';
+import { HashrateInput } from '@/components/ui/hashrate-input';
 import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { useControlApi, getCurrentConfig } from '@/hooks/useControlApi';
 import {
@@ -29,6 +30,7 @@ import {
   getBitcoinAddressPlaceholder,
   getIdentifierError,
   getPoolAuthorityPubkeyError,
+  formatHashrate,
   isValidPoolAuthorityPubkey,
   isTomlSafeIdentifier,
   stripWrappingQuotes,
@@ -38,6 +40,7 @@ import type { PoolConfig, SetupData } from '@/components/setup/types';
 import {
   DEFAULT_SHARES_PER_MINUTE,
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+  DEFAULT_MIN_HASHRATE,
   DEFAULT_POOL_PORT,
   formatBitcoinCoreVersion,
   normalizeBitcoinCoreVersion,
@@ -84,7 +87,7 @@ const SETUP_TARGET_STEP_STORAGE_KEY = 'sv2-ui-setup-target-step';
 const DONATION_SNAP_POINTS = [0, 10, 25, 50, 75, 100];
 const DONATION_SNAP_THRESHOLD = 3;
 
-type EditingField = null | 'pool' | 'fallbackPools' | 'mode' | 'signature' | 'advanced';
+type EditingField = null | 'pool' | 'fallbackPools' | 'mode' | 'signature' | 'hashrate' | 'advanced';
 
 function snapDonation(value: number): number {
   const nearest = DONATION_SNAP_POINTS.find((p) => Math.abs(value - p) <= DONATION_SNAP_THRESHOLD);
@@ -135,6 +138,8 @@ export function ConfigurationTab() {
   const [isCustomPool, setIsCustomPool] = useState(false);
   const [editMode, setEditMode] = useState<'jd' | 'no-jd' | null>(null);
   const [editSignature, setEditSignature] = useState<string>('');
+  const [editHashrate, setEditHashrate] = useState<number | null>(null);
+  const [hashrateInputValid, setHashrateInputValid] = useState(true);
   const [editAdvanced, setEditAdvanced] = useState<{
     shares_per_minute: string;
     downstream_extranonce2_size: string;
@@ -237,6 +242,13 @@ export function ConfigurationTab() {
     setEditing('signature');
   };
 
+  const startEditHashrate = () => {
+    if (!config?.translator) return;
+    setEditHashrate(config.translator.min_hashrate || DEFAULT_MIN_HASHRATE);
+    setHashrateInputValid(true);
+    setEditing('hashrate');
+  };
+
   const startEditAdvanced = () => {
     if (!config?.translator) return;
     const configIsSoloPool = config.miningMode === 'solo' && config.mode === 'no-jd';
@@ -257,6 +269,8 @@ export function ConfigurationTab() {
     setIsCustomPool(false);
     setEditMode(null);
     setEditSignature('');
+    setEditHashrate(null);
+    setHashrateInputValid(true);
     setEditAdvanced(null);
   };
 
@@ -279,6 +293,11 @@ export function ConfigurationTab() {
     !getPoolIdentityError(pool, config?.miningMode ?? null, editNetwork)
   ));
   const isSignatureValid = editSignature === '' || isTomlSafeIdentifier(editSignature);
+  const isHashrateValid =
+    hashrateInputValid &&
+    editHashrate !== null &&
+    Number.isFinite(editHashrate) &&
+    editHashrate > 0;
   const isAdvancedValid =
     !!editAdvanced &&
     isPositiveNumber(editAdvanced.shares_per_minute) &&
@@ -308,6 +327,12 @@ export function ConfigurationTab() {
     } else if (editing === 'signature') {
       if (!isSignatureValid || !config.jdc) return;
       updated.jdc = { ...config.jdc, jdc_signature: editSignature.trim() };
+    } else if (editing === 'hashrate') {
+      if (!isHashrateValid || !config.translator || editHashrate === null) return;
+      updated.translator = {
+        ...config.translator,
+        min_hashrate: editHashrate,
+      };
     } else if (editing === 'advanced') {
       if (!isAdvancedValid || !config.translator || !editAdvanced) return;
       const configIsSoloPool = config.miningMode === 'solo' && config.mode === 'no-jd';
@@ -786,6 +811,40 @@ export function ConfigurationTab() {
                     Miner-chosen tag shown in coinbase transactions on block explorers.
                   </p>
                 </div>
+              }
+            />
+          )}
+
+          {/* Lowest worker hashrate */}
+          {config.translator && (
+            <ConfigRow
+              label="Lowest Worker Hashrate"
+              editing={editing === 'hashrate'}
+              onEdit={startEditHashrate}
+              onSave={saveEdit}
+              onCancel={cancelEdit}
+              isSaving={isSaving}
+              saveDisabled={!isHashrateValid}
+              disabled={editing !== null && editing !== 'hashrate'}
+              display={
+                <p className="text-sm text-muted-foreground">
+                  {formatHashrate(config.translator.min_hashrate || DEFAULT_MIN_HASHRATE)}
+                </p>
+              }
+              editContent={
+                editHashrate !== null && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      One worker? Enter its hashrate. Multiple? Use the lowest performing.
+                    </p>
+                    <HashrateInput
+                      idPrefix="edit-lowest-worker-hashrate"
+                      value={editHashrate}
+                      onChange={setEditHashrate}
+                      onValidityChange={setHashrateInputValid}
+                    />
+                  </div>
+                )
               }
             />
           )}

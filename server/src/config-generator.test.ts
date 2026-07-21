@@ -70,6 +70,7 @@ const NO_JD_DATA: SetupData = {
 test('translator config uses advanced setup values', () => {
   const config = generateTranslatorConfig(BASE_DATA_30);
 
+  assert.match(config, /min_individual_miner_hashrate = 100000000000000\.0/);
   assert.match(config, /downstream_extranonce2_size = 8/);
   assert.match(config, /shares_per_minute = 12\.5/);
 });
@@ -157,6 +158,7 @@ test('normalization backfills advanced defaults for old saved configs', () => {
     ...BASE_DATA_30,
     translator: {
       ...BASE_DATA_30.translator,
+      min_hashrate: undefined,
       shares_per_minute: undefined,
       downstream_extranonce2_size: undefined,
     },
@@ -165,6 +167,7 @@ test('normalization backfills advanced defaults for old saved configs', () => {
   const normalized = normalizeSetupData(data);
 
   assert.ok(normalized.translator);
+  assert.equal(normalized.translator.min_hashrate, 100_000_000_000_000);
   assert.equal(normalized.translator.shares_per_minute, 6);
   assert.equal(normalized.translator.downstream_extranonce2_size, 4);
   assert.equal('verify_payout' in normalized.translator, false);
