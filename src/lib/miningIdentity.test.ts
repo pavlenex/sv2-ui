@@ -102,3 +102,27 @@ test('normalizePoolPriorityIdentities updates inherited fallback identities but 
   assert.equal(result[1].user_identity, 'new-primary.worker');
   assert.equal(result[2].user_identity, 'custom.worker');
 });
+
+test('normalizePoolPriorityIdentities preserves fallback payout addresses during full donation', () => {
+  const previousPrimary = {
+    ...SRI_POOL,
+    user_identity: `sri/donate/25/${MAINNET_ADDRESS}/worker1`,
+  };
+  const nextPrimary = {
+    ...SRI_POOL,
+    user_identity: 'sri/donate/worker1',
+  };
+  const fallback = {
+    ...STANDARD_POOL,
+    address: 'fallback.example.com',
+    user_identity: MAINNET_ADDRESS,
+  };
+
+  const result = normalizePoolPriorityIdentities(
+    [nextPrimary, fallback],
+    previousPrimary,
+    'solo',
+  );
+
+  assert.equal(result[1].user_identity, MAINNET_ADDRESS);
+});

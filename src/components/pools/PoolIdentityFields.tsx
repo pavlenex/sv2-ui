@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import {
   shouldAggregateTranslatorChannels,
@@ -104,17 +104,25 @@ function SriPoolIdentityFields({
   onChange: (pool: PoolConfig) => void;
 }) {
   const parsed = parseSriIdentity(pool.user_identity);
+  const [savedPayoutAddress, setSavedPayoutAddress] = useState(parsed.address);
+  const payoutAddress = parsed.address || savedPayoutAddress;
   const needsAddress = parsed.donationPercent < 100;
   const identityError = getPoolIdentityError(pool, 'solo', network);
+  const onChangeRef = useRef(onChange);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   useEffect(() => {
     const normalizedPool = normalizePoolUserIdentity(pool, 'solo');
     if (normalizedPool !== pool) {
-      onChange(normalizedPool);
+      onChangeRef.current(normalizedPool);
     }
-  }, [onChange, pool]);
+  }, [pool]);
 
   const updateSriIdentity = (address: string, workerName: string, donationPercent: number) => {
+    setSavedPayoutAddress(address);
     onChange({
       ...pool,
       user_identity: buildSriIdentity(address, workerName, donationPercent),
@@ -132,15 +140,15 @@ function SriPoolIdentityFields({
           <input
             id={`${idPrefix}-payout-address`}
             type="text"
-            value={parsed.address}
+            value={payoutAddress}
             onChange={(event) => updateSriIdentity(event.target.value, parsed.workerName, parsed.donationPercent)}
             placeholder={getBitcoinAddressPlaceholder(network)}
             aria-required="true"
             autoComplete="off"
             className="w-full h-10 px-3 rounded-lg border border-input bg-background focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all font-mono text-sm"
           />
-          {getBitcoinAddressError(parsed.address, network) && (
-            <p className="text-xs text-destructive mt-1">{getBitcoinAddressError(parsed.address, network)}</p>
+          {getBitcoinAddressError(payoutAddress, network) && (
+            <p className="text-xs text-destructive mt-1">{getBitcoinAddressError(payoutAddress, network)}</p>
           )}
           <p className="text-xs text-muted-foreground mt-2">
             Used with worker and donation settings to build this pool identity.
@@ -156,7 +164,7 @@ function SriPoolIdentityFields({
           id={`${idPrefix}-worker-name`}
           type="text"
           value={parsed.workerName}
-          onChange={(event) => updateSriIdentity(parsed.address, event.target.value, parsed.donationPercent)}
+          onChange={(event) => updateSriIdentity(payoutAddress, event.target.value, parsed.donationPercent)}
           placeholder="worker1"
           autoComplete="off"
           className="w-full h-10 px-3 rounded-lg border border-input bg-background focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 outline-none transition-all font-mono text-sm"
@@ -175,7 +183,7 @@ function SriPoolIdentityFields({
             max={100}
             value={parsed.donationPercent}
             onChange={(event) => updateSriIdentity(
-              parsed.address,
+              payoutAddress,
               parsed.workerName,
               snapDonation(Number(event.target.value)),
             )}

@@ -139,12 +139,24 @@ export function normalizePoolPriorityIdentities(
       pool,
       miningMode,
     );
+    const nextDefaultIdentity = getCompatiblePoolIdentity(
+      nextPrimaryPool,
+      pool,
+      miningMode,
+    );
 
     if (pool.user_identity && pool.user_identity !== previousDefaultIdentity) {
       return pool;
     }
 
-    return withCompatiblePoolIdentity(nextPrimaryPool, pool, miningMode);
+    // A full-donation SRI identity intentionally contains no payout address.
+    // Keep an inherited fallback address instead of erasing information that
+    // cannot be represented in the primary pool's protocol identity.
+    if (!nextDefaultIdentity && pool.user_identity) {
+      return pool;
+    }
+
+    return { ...pool, user_identity: nextDefaultIdentity };
   });
 }
 
