@@ -914,11 +914,6 @@ export function ConfigurationTab() {
                       {!isPositiveInteger(editAdvanced.downstream_extranonce2_size) && (
                         <p className="text-xs text-destructive mt-1">Enter a whole number greater than 0.</p>
                       )}
-                      {isJdMode && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          The JDC adds a 2-byte routing prefix; for a pool limit of 4, enter 2.
-                        </p>
-                      )}
                     </div>
                   </div>
                 )
