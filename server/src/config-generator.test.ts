@@ -170,6 +170,19 @@ test('normalization backfills advanced defaults for old saved configs', () => {
   assert.equal('verify_payout' in normalized.translator, false);
 });
 
+test('normalization replaces an out-of-range downstream extranonce2 size', () => {
+  const normalized = normalizeSetupData({
+    ...BASE_DATA_30,
+    translator: {
+      ...BASE_DATA_30.translator!,
+      downstream_extranonce2_size: 1_000_000_000_000,
+    },
+  });
+
+  assert.equal(normalized.translator?.downstream_extranonce2_size, 4);
+  assert.match(generateTranslatorConfig(normalized), /downstream_extranonce2_size = 4/);
+});
+
 test('normalization backfills payout verification only for solo pool mining', () => {
   const normalized = normalizeSetupData({
     ...BASE_DATA_30,

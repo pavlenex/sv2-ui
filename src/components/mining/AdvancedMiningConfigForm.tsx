@@ -2,6 +2,7 @@ import type { TranslatorConfig } from '@sv2-ui/shared';
 import {
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
   DEFAULT_SHARES_PER_MINUTE,
+  MAX_DOWNSTREAM_EXTRANONCE2_SIZE,
 } from '@sv2-ui/shared';
 
 import { Switch } from '@/components/ui/switch';
@@ -34,6 +35,10 @@ function isPositiveInteger(value: string): boolean {
   return isPositiveNumber(value) && Number.isInteger(Number(value));
 }
 
+function isValidDownstreamExtranonce2Size(value: string): boolean {
+  return isPositiveInteger(value) && Number(value) <= MAX_DOWNSTREAM_EXTRANONCE2_SIZE;
+}
+
 export function createAdvancedMiningConfigValues(
   translator?: TranslatorConfig | null,
 ): AdvancedMiningConfigValues {
@@ -48,7 +53,7 @@ export function createAdvancedMiningConfigValues(
 
 export function isAdvancedMiningConfigValid(value: AdvancedMiningConfigValues): boolean {
   return isPositiveNumber(value.sharesPerMinute)
-    && isPositiveInteger(value.downstreamExtranonce2Size);
+    && isValidDownstreamExtranonce2Size(value.downstreamExtranonce2Size);
 }
 
 export function parseAdvancedMiningConfigValues(
@@ -56,8 +61,9 @@ export function parseAdvancedMiningConfigValues(
 ): ParsedAdvancedMiningConfigValues {
   return {
     sharesPerMinute: Number(value.sharesPerMinute) || DEFAULT_SHARES_PER_MINUTE,
-    downstreamExtranonce2Size:
-      Number(value.downstreamExtranonce2Size) || DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+    downstreamExtranonce2Size: isValidDownstreamExtranonce2Size(value.downstreamExtranonce2Size)
+      ? Number(value.downstreamExtranonce2Size)
+      : DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
     verifyPayout: value.verifyPayout,
   };
 }
@@ -70,7 +76,9 @@ export function AdvancedMiningConfigForm({
   showCoinbaseVerification = false,
 }: AdvancedMiningConfigFormProps) {
   const sharesPerMinuteValid = isPositiveNumber(value.sharesPerMinute);
-  const downstreamExtranonce2SizeValid = isPositiveInteger(value.downstreamExtranonce2Size);
+  const downstreamExtranonce2SizeValid = isValidDownstreamExtranonce2Size(
+    value.downstreamExtranonce2Size,
+  );
   const verifyPayoutLabelId = `${idPrefix}-verify-payout-label`;
   const verifyPayoutDescriptionId = `${idPrefix}-verify-payout-description`;
   const sharesPerMinuteId = `${idPrefix}-shares-per-minute`;
@@ -134,6 +142,7 @@ export function AdvancedMiningConfigForm({
             id={downstreamExtranonce2SizeId}
             type="number"
             min="1"
+            max={MAX_DOWNSTREAM_EXTRANONCE2_SIZE}
             step="1"
             value={value.downstreamExtranonce2Size}
             onChange={(event) => onChange({ ...value, downstreamExtranonce2Size: event.target.value })}
@@ -143,7 +152,7 @@ export function AdvancedMiningConfigForm({
           />
           {!downstreamExtranonce2SizeValid ? (
             <p id={downstreamExtranonce2SizeDescriptionId} className="mt-1 text-xs text-destructive">
-              Enter a whole number greater than 0.
+              Enter a whole number from 1 to 65,535.
             </p>
           ) : (
             <p id={downstreamExtranonce2SizeDescriptionId} className="mt-1 text-xs text-muted-foreground">

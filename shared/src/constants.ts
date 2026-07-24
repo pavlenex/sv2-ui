@@ -39,6 +39,7 @@ export const JDC_MONITORING_PORT = 9091;
 
 export const DEFAULT_SHARES_PER_MINUTE = 6;
 export const DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE = 4;
+export const MAX_DOWNSTREAM_EXTRANONCE2_SIZE = 65_535;
 export const DEFAULT_POOL_PORT = 34254;
 
 export function computeDefaultSocketPath(dataDir: string, network: BitcoinNetwork): string {

@@ -11,6 +11,7 @@ import {
   isFullDonationIdentity,
   DEFAULT_SHARES_PER_MINUTE,
   DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
+  MAX_DOWNSTREAM_EXTRANONCE2_SIZE,
   bitcoinCoreVersionToIpcMajor,
   formatSupportedVersions,
 } from '@sv2-ui/shared';
@@ -22,9 +23,17 @@ function positiveNumber(value: number | undefined, fallback: number): number {
     : fallback;
 }
 
-function positiveInteger(value: number | undefined, fallback: number): number {
-  const normalized = positiveNumber(value, fallback);
-  return Math.max(1, Math.trunc(normalized));
+function validDownstreamExtranonce2Size(value: number | undefined): value is number {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value > 0
+    && value <= MAX_DOWNSTREAM_EXTRANONCE2_SIZE;
+}
+
+function downstreamExtranonce2Size(value: number | undefined): number {
+  return validDownstreamExtranonce2Size(value)
+    ? value
+    : DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE;
 }
 
 function legacyIdentity(data: SetupData): string {
@@ -139,9 +148,8 @@ export function normalizeSetupData(data: SetupData): SetupData {
       ...(isSoloPool ? { verify_payout: data.translator.verify_payout ?? true } : {}),
       min_hashrate: data.translator.min_hashrate,
       shares_per_minute: positiveNumber(data.translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE),
-      downstream_extranonce2_size: positiveInteger(
+      downstream_extranonce2_size: downstreamExtranonce2Size(
         data.translator.downstream_extranonce2_size,
-        DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
       ),
     },
   };
@@ -176,9 +184,8 @@ verify_payout = ${verifyPayout}
   const minHashrate = translator.min_hashrate ? `${translator.min_hashrate}.0` : '100_000_000_000_000.0';
   // Shares per minute target
   const sharesPerMinute = positiveNumber(translator.shares_per_minute, DEFAULT_SHARES_PER_MINUTE).toFixed(1);
-  const downstreamExtranonce2Size = positiveInteger(
+  const normalizedDownstreamExtranonce2Size = downstreamExtranonce2Size(
     translator.downstream_extranonce2_size,
-    DEFAULT_DOWNSTREAM_EXTRANONCE2_SIZE,
   );
 
   const upstreams = isJdMode
@@ -211,7 +218,7 @@ max_supported_version = 2
 min_supported_version = 2
 
 # Extranonce2 size for downstream connections
-downstream_extranonce2_size = ${downstreamExtranonce2Size}
+downstream_extranonce2_size = ${normalizedDownstreamExtranonce2Size}
 
 ${verifyPayoutConfig}
 # Aggregate channels: if true, all miners share one upstream channel

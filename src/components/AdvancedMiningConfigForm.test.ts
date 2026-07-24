@@ -30,10 +30,10 @@ test('creates advanced mining form values from translator configuration', () => 
   });
 });
 
-test('validates positive share rates and whole extranonce2 sizes', () => {
+test('validates positive share rates and unsigned 16-bit extranonce2 sizes', () => {
   assert.equal(isAdvancedMiningConfigValid({
     sharesPerMinute: '6.5',
-    downstreamExtranonce2Size: '8',
+    downstreamExtranonce2Size: '65535',
     verifyPayout: true,
   }), true);
   assert.equal(isAdvancedMiningConfigValid({
@@ -44,6 +44,16 @@ test('validates positive share rates and whole extranonce2 sizes', () => {
   assert.equal(isAdvancedMiningConfigValid({
     sharesPerMinute: '6.5',
     downstreamExtranonce2Size: '4.5',
+    verifyPayout: true,
+  }), false);
+  assert.equal(isAdvancedMiningConfigValid({
+    sharesPerMinute: '6.5',
+    downstreamExtranonce2Size: '65536',
+    verifyPayout: true,
+  }), false);
+  assert.equal(isAdvancedMiningConfigValid({
+    sharesPerMinute: '6.5',
+    downstreamExtranonce2Size: '1000000000000',
     verifyPayout: true,
   }), false);
 });
@@ -58,4 +68,12 @@ test('parses form values for translator configuration', () => {
     downstreamExtranonce2Size: 8,
     verifyPayout: false,
   });
+});
+
+test('falls back to the default for an out-of-range extranonce2 size', () => {
+  assert.equal(parseAdvancedMiningConfigValues({
+    sharesPerMinute: '6',
+    downstreamExtranonce2Size: '1000000000000',
+    verifyPayout: true,
+  }).downstreamExtranonce2Size, 4);
 });
