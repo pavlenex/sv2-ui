@@ -84,6 +84,82 @@ export function normalizePoolUserIdentity(pool: PoolConfig, miningMode: MiningMo
     : { ...pool, user_identity: normalizedIdentity };
 }
 
+/**
+ * Convert an existing pool identity into the representation expected by a
+ * target pool. SRI solo pools use a structured identity while other solo
+ * pools use a plain payout address.
+ */
+export function getCompatiblePoolIdentity(
+  sourcePool: PoolConfig | null | undefined,
+  targetPool: PoolConfig,
+  miningMode: MiningMode | null,
+): string {
+  const sourceIdentity = sourcePool?.user_identity ?? '';
+  if (!sourceIdentity) return '';
+
+  if (miningMode === 'solo' && isSriPool(sourcePool) && !isSriPool(targetPool)) {
+    const parsed = parseSriIdentity(sourceIdentity);
+    return parsed.donationPercent >= 100 ? '' : parsed.address;
+  }
+
+  return normalizePoolUserIdentity(
+    { ...targetPool, user_identity: sourceIdentity },
+    miningMode,
+  ).user_identity;
+}
+
+export function withCompatiblePoolIdentity(
+  sourcePool: PoolConfig | null | undefined,
+  targetPool: PoolConfig,
+  miningMode: MiningMode | null,
+): PoolConfig {
+  return {
+    ...targetPool,
+    user_identity: getCompatiblePoolIdentity(sourcePool, targetPool, miningMode),
+  };
+}
+
+/**
+ * Normalize an ordered pool list while keeping fallback identities in sync
+ * with the primary identity unless the user customized them explicitly.
+ */
+export function normalizePoolPriorityIdentities(
+  nextPools: PoolConfig[],
+  previousPrimaryPool: PoolConfig | null | undefined,
+  miningMode: MiningMode | null,
+): PoolConfig[] {
+  const normalizedPools = nextPools.map((pool) => normalizePoolUserIdentity(pool, miningMode));
+  const nextPrimaryPool = normalizedPools[0] ?? null;
+
+  return normalizedPools.map((pool, index) => {
+    if (index === 0) return pool;
+
+    const previousDefaultIdentity = getCompatiblePoolIdentity(
+      previousPrimaryPool,
+      pool,
+      miningMode,
+    );
+    const nextDefaultIdentity = getCompatiblePoolIdentity(
+      nextPrimaryPool,
+      pool,
+      miningMode,
+    );
+
+    if (pool.user_identity && pool.user_identity !== previousDefaultIdentity) {
+      return pool;
+    }
+
+    // A full-donation SRI identity intentionally contains no payout address.
+    // Keep an inherited fallback address instead of erasing information that
+    // cannot be represented in the primary pool's protocol identity.
+    if (!nextDefaultIdentity && pool.user_identity) {
+      return pool;
+    }
+
+    return { ...pool, user_identity: nextDefaultIdentity };
+  });
+}
+
 export function getSriIdentitySummary(identity: string): string {
   if (!identity) return 'Username not set';
 

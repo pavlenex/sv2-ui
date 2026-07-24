@@ -33,6 +33,7 @@ import {
 } from './docker.js';
 import { getLogDiagnostics, getLogStreams, readCollatedLogLines } from './logs/diagnostics.js';
 import { ActivePoolTracker } from './active-pool.js';
+import { getPoolConfigError, MAX_FALLBACK_POOLS } from './pool-validation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -56,6 +57,10 @@ type SavedState = {
   data: SetupData | null;
   shouldBeRunning: boolean;
 };
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 // Middleware
 app.use(cors());
@@ -130,14 +135,6 @@ async function saveState(data: SetupData, shouldBeRunning = true): Promise<void>
   }, null, 2));
 }
 
-// Characters that would break the generated TOML basic string ("...").
-// eslint-disable-next-line no-control-regex
-const TOML_UNSAFE_CHARS = /["\\\u0000-\u001F\u007F]/;
-
-function isTomlSafeIdentifier(value: string): boolean {
-  return value !== '' && value === value.trim() && !TOML_UNSAFE_CHARS.test(value);
-}
-
 function configuredPools(data: SetupData): PoolConfig[] {
   if (data.miningMode === 'solo' && data.mode === 'jd') {
     return [];
@@ -149,18 +146,6 @@ function configuredPools(data: SetupData): PoolConfig[] {
   ].filter((pool): pool is PoolConfig => Boolean(pool));
 }
 
-function getPoolConfigError(pool: PoolConfig, label: string): string | null {
-  if (!pool.address) return `${label} address is required`;
-  if (!Number.isInteger(pool.port) || pool.port <= 0 || pool.port > 65535) {
-    return `${label} port must be between 1 and 65535`;
-  }
-  if (!pool.authority_public_key) return `${label} authority public key is required`;
-  if (!isTomlSafeIdentifier(pool.user_identity)) {
-    return `${label} username is required and cannot contain quotes, backslashes, or control characters`;
-  }
-  return null;
-}
-
 function getSetupValidationError(data: SetupData): string | null {
   const requiresPool = !(data.miningMode === 'solo' && data.mode === 'jd');
 
@@ -170,6 +155,10 @@ function getSetupValidationError(data: SetupData): string | null {
 
   if (data.mode === 'jd' && (!data.jdc || !data.bitcoin)) {
     return BITCOIN_ERROR_MESSAGES.jdConfig;
+  }
+
+  if ((data.fallbackPools?.length ?? 0) > MAX_FALLBACK_POOLS) {
+    return `No more than ${MAX_FALLBACK_POOLS} fallback pools may be configured`;
   }
 
   const pools = configuredPools(data);
@@ -345,6 +334,10 @@ app.put('/api/config', async (req, res) => {
   }
 
   try {
+    if (!isJsonObject(req.body)) {
+      return res.status(400).json({ success: false, error: 'Configuration update must be a JSON object' });
+    }
+
     const state = await loadState();
 
     if (!state.configured || !state.data) {
@@ -497,7 +490,11 @@ app.post('/api/setup', async (req, res) => {
   }
 
   try {
-    const data = normalizeSetupData(req.body as SetupData);
+    if (!isJsonObject(req.body)) {
+      return res.status(400).json({ success: false, error: 'Setup configuration must be a JSON object' });
+    }
+
+    const data = normalizeSetupData(req.body as unknown as SetupData);
 
     // Validate required fields
     const setupValidationError = getSetupValidationError(data);
