@@ -645,36 +645,6 @@ export function formatTelegramStatus(
   return lines.join('\n');
 }
 
-export function getStatusChangeMessage(
-  previous: TelegramActivitySnapshot,
-  current: TelegramActivitySnapshot
-): string | null {
-  if (!previous.running && current.running) {
-    return formatTelegramStatus(current, '🟢 SV2 mining started');
-  }
-
-  if (previous.running && !current.running) {
-    return formatTelegramStatus(current, '🔴 SV2 mining stopped');
-  }
-
-  if (
-    current.running &&
-    current.poolName !== null &&
-    (
-      previous.poolName !== current.poolName ||
-      (
-        previous.activePoolIndex !== null &&
-        current.activePoolIndex !== null &&
-        previous.activePoolIndex !== current.activePoolIndex
-      )
-    )
-  ) {
-    return formatTelegramStatus(current, '🔁 SV2 active pool changed');
-  }
-
-  return null;
-}
-
 function getMiningStatusChangeMessage(
   previous: TelegramActivitySnapshot,
   current: TelegramActivitySnapshot
@@ -1371,7 +1341,7 @@ export class TelegramService {
   }
 
   private enqueue(messages: string[]): void {
-    this.outbox.push(...messages.map(truncateMessage));
+    this.outbox.push(...messages);
     if (this.outbox.length > MAX_PENDING_MESSAGES) {
       this.outbox.splice(0, this.outbox.length - MAX_PENDING_MESSAGES);
     }
@@ -1574,7 +1544,7 @@ export class TelegramService {
 
   private describeDeliveryIssue(): string | null {
     const issue = this.deliveryIssue;
-    if (!issue || this.settings?.chatId === null || !this.settings) return null;
+    if (!issue || !this.settings || this.settings.chatId === null) return null;
 
     switch (issue.reason) {
       case 'invalid-token':

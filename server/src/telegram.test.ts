@@ -12,7 +12,6 @@ import {
   mapWithConcurrency,
   getSingleMinerChannelIds,
   getTelegramWorkerCount,
-  getStatusChangeMessage,
   TelegramApiError,
   TelegramConfigError,
   TelegramService,
@@ -233,27 +232,6 @@ test('formats a compact mining summary with block and difficulty data', () => {
       'Best difficulty: 1,250',
     ].join('\n')
   );
-});
-
-test('reports only meaningful status changes', () => {
-  const stopped = snapshot({
-    running: false,
-    poolName: null,
-    activePoolIndex: null,
-    hashrate: null,
-    workers: null,
-    sharesSubmitted: null,
-    sharesAccepted: null,
-    sharesRejected: null,
-    channels: null,
-  });
-
-  assert.match(getStatusChangeMessage(stopped, snapshot()) ?? '', /mining started/);
-  assert.match(
-    getStatusChangeMessage(snapshot(), snapshot({ poolName: 'Fallback pool' })) ?? '',
-    /active pool changed/
-  );
-  assert.equal(getStatusChangeMessage(snapshot(), snapshot()), null);
 });
 
 test('pairs a private chat with the three critical alerts enabled by default', async (t) => {

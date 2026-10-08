@@ -23,7 +23,7 @@ export async function readJsonWithLimit(
   }
 
   if (!response.body) {
-    return JSON.parse(await response.text()) as unknown;
+    throw new SyntaxError('Response has no body');
   }
 
   const reader = response.body.getReader();

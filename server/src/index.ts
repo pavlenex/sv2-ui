@@ -1131,6 +1131,7 @@ const MAX_MONITORING_RESPONSE_BYTES = 1024 * 1024;
 // JD mode reads channels per downstream client. Anyone who can reach the JDC
 // can open connections, so bound both the fan-out and the parallelism.
 const MAX_TELEGRAM_MONITORED_CLIENTS = 200;
+let warnedAboutTelegramClientLimit = false;
 // Bounds for one whole activity snapshot, across every monitoring request it
 // makes: total items read, and total time. Hitting either skips the round.
 const TELEGRAM_SNAPSHOT_MAX_ITEMS = MAX_MONITORING_ITEMS;
@@ -1305,10 +1306,20 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
     isJsonObject(client) && Number.isSafeInteger(client.client_id) && client.client_id >= 0
   ) ?? false;
 
+  // Above the limit, block-found and best-difficulty alerts pause; say so
+  // once instead of every check.
+  const overClientLimit = (jdcClients?.length ?? 0) > MAX_TELEGRAM_MONITORED_CLIENTS;
+  if (overClientLimit && !warnedAboutTelegramClientLimit) {
+    console.warn(
+      `Telegram alerts: more than ${MAX_TELEGRAM_MONITORED_CLIENTS} SV2 clients are connected to JDC; block-found and best-difficulty alerts are paused.`,
+    );
+  }
+  warnedAboutTelegramClientLimit = overClientLimit;
+
   if (
     jdcClients &&
     clientIdsAreValid &&
-    jdcClients.length <= MAX_TELEGRAM_MONITORED_CLIENTS
+    !overClientLimit
   ) {
     const minerClients = jdcClients.filter((client) => client.client_kind !== 'translator_proxy');
     const downstreamResponses = await mapWithConcurrency(
@@ -1323,6 +1334,10 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
       }),
     );
 
+    // All or nothing. The fetches never throw (a failure comes back as null),
+    // and a partial list would drop the missing clients' channels from the
+    // previous state, so a block found on them next round would be missed.
+    // Skipping one round is the safer trade.
     if (downstreamResponses.every((response) => response.channels !== null)) {
       directSv2Channels = downstreamResponses.flatMap(({ clientId, channels }) => {
         if (!channels) return [];
