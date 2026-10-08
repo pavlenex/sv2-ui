@@ -26,10 +26,6 @@ const BOT_TOKEN_PATTERN = /^\d{1,20}:[A-Za-z0-9_-]{20,100}$/;
 const BOT_USERNAME_PATTERN = /^[A-Za-z0-9_]{1,64}$/;
 export const MAX_MONITORING_ITEMS = 5_000;
 
-// The rejected-share count can rise on every check while something is wrong,
-// so after one alert the next waits at least this long.
-const COUNT_ALERT_COOLDOWN_MS = 15 * 60_000;
-
 // One record per mode and pool; 17 pools in two modes stay well below this.
 const MAX_BEST_DIFFICULTY_RECORDS = 64;
 
@@ -831,31 +827,6 @@ const DELIVERY_ISSUE_LOG: Partial<Record<TelegramFailureReason, string>> = {
   unreachable: 'Telegram is unreachable; alerts are queued and will be retried.',
 };
 
-/** Last value a rate-limited alert reported, and when it was sent. */
-type CountAlertState = { reported: number | null; sentAt: number | null };
-
-/**
- * Returns the change to report for a rate-limited alert, or null. The first
- * change is reported at once; later ones wait for the cooldown and then
- * report everything since the last alert, so nothing is lost and a value
- * that goes up and back down in between sends nothing.
- */
-function takeCountChange(
-  state: CountAlertState,
-  previous: number | null,
-  current: number | null,
-  now: number,
-): { from: number; to: number } | null {
-  state.reported ??= previous;
-  if (current === null || state.reported === null || current === state.reported) return null;
-  if (state.sentAt !== null && now - state.sentAt < COUNT_ALERT_COOLDOWN_MS) return null;
-
-  const change = { from: state.reported, to: current };
-  state.reported = current;
-  state.sentAt = now;
-  return change;
-}
-
 export class TelegramService {
   private settings: SavedTelegramSettings | null = null;
   private initialized = false;
@@ -872,8 +843,6 @@ export class TelegramService {
   private channelBaselines = new Map<string, TelegramMiningChannel>();
   private lastSummaryAt: number | null = null;
   private lastKnownPool: { name: string; index: number } | null = null;
-  private reportedWorkers: number | null = null;
-  private rejectedSharesAlert: CountAlertState = { reported: null, sentAt: null };
   private lastActivityCheckAt: number | null = null;
   /** Alerts not yet delivered, oldest first. */
   private outbox: string[] = [];
@@ -976,6 +945,8 @@ export class TelegramService {
     // bot are of no further use, so confirming them is harmless.
     let matchingUpdate: TelegramUpdate | undefined;
     let lastSeenUpdateId: number | null = null;
+    // Opening the bot from search or BotFather sends /start without the code.
+    let sawStartWithoutCode = false;
 
     for (let batch = 0; batch < MAX_PAIRING_UPDATE_BATCHES && !matchingUpdate; batch += 1) {
       const updates = await this.callApi<TelegramUpdate[]>(
@@ -993,12 +964,12 @@ export class TelegramService {
 
       for (const update of updates) {
         lastSeenUpdateId = Math.max(lastSeenUpdateId ?? update.update_id, update.update_id);
-        if (
-          !matchingUpdate &&
-          update.message?.chat.type === 'private' &&
-          getStartParameter(update.message.text) === settings.pairingCode
-        ) {
+        if (update.message?.chat.type !== 'private') continue;
+        const startCode = getStartParameter(update.message.text);
+        if (!matchingUpdate && startCode === settings.pairingCode) {
           matchingUpdate = update;
+        } else if (startCode === null && getCommand(update.message.text) === 'start') {
+          sawStartWithoutCode = true;
         }
       }
       this.pairingOffset = lastSeenUpdateId === null ? null : lastSeenUpdateId + 1;
@@ -1007,7 +978,9 @@ export class TelegramService {
     const chat = matchingUpdate?.message?.chat;
     if (!chat) {
       throw new TelegramConfigError(
-        `Open @${settings.botUsername} from the pairing link and press Start, then try again`
+        sawStartWithoutCode
+          ? `@${settings.botUsername} got /start without the pairing code. Use the Open Telegram button here, press Start, then check again.`
+          : `No /start from the pairing link yet. Use the Open Telegram button here, press Start, then check again.`
       );
     }
 
@@ -1173,7 +1146,7 @@ export class TelegramService {
         return;
       }
 
-      const messages = this.collectAlerts(settings, this.previousSnapshot, current, now);
+      const messages = this.collectAlerts(settings, this.previousSnapshot, current);
       const summaryDue = settings.summaryIntervalMinutes > 0 &&
         this.lastSummaryAt !== null &&
         now - this.lastSummaryAt >= settings.summaryIntervalMinutes * 60_000;
@@ -1213,7 +1186,6 @@ export class TelegramService {
     settings: SavedTelegramSettings,
     previous: TelegramActivitySnapshot,
     current: TelegramActivitySnapshot,
-    now: number,
   ): string[] {
     const messages: string[] = [];
     const channelBaselineSnapshot = {
@@ -1269,9 +1241,16 @@ export class TelegramService {
       if (statusMessage) messages.push(statusMessage);
     }
 
-    const workerChange = this.takeWorkerChange(settings.notifyOnWorkerChange, previous, current);
-    if (workerChange) {
-      const { from, to } = workerChange;
+    // Every change is sent right away: a miner that keeps dropping is exactly
+    // what this alert is for, and it can be turned off.
+    if (
+      settings.notifyOnWorkerChange &&
+      previous.workers !== null &&
+      current.workers !== null &&
+      previous.workers !== current.workers
+    ) {
+      const from = previous.workers;
+      const to = current.workers;
       let title = to > from ? '🟢 Worker connected' : '🟠 Worker disconnected';
       if (to === 0) title = '🔴 All workers disconnected';
       else if (from === 0) title = '🟢 Workers back online';
@@ -1281,63 +1260,21 @@ export class TelegramService {
       ].join('\n'));
     }
 
-    // The counter restarts at 0 with the mining stack; start counting again.
-    const rejected = this.rejectedSharesAlert;
-    rejected.reported ??= previous.sharesRejected;
+    // A lower count means the mining stack restarted, not fewer rejects.
     if (
-      !settings.notifyOnRejectedShares ||
-      (current.sharesRejected !== null && rejected.reported !== null && current.sharesRejected < rejected.reported)
+      settings.notifyOnRejectedShares &&
+      previous.sharesRejected !== null &&
+      current.sharesRejected !== null &&
+      current.sharesRejected > previous.sharesRejected
     ) {
-      rejected.reported = current.sharesRejected;
-    }
-    const rejectedChange = settings.notifyOnRejectedShares
-      ? takeCountChange(rejected, previous.sharesRejected, current.sharesRejected, now)
-      : null;
-    if (rejectedChange && rejectedChange.to > rejectedChange.from) {
       messages.push([
         '⚠️ Rejected shares increased',
-        `New rejected shares: ${(rejectedChange.to - rejectedChange.from).toLocaleString()}`,
-        `Total rejected: ${rejectedChange.to.toLocaleString()}`,
+        `New rejected shares: ${(current.sharesRejected - previous.sharesRejected).toLocaleString()}`,
+        `Total rejected: ${current.sharesRejected.toLocaleString()}`,
       ].join('\n'));
     }
 
     return messages;
-  }
-
-  /**
-   * Every change in the worker count is reported: a miner that keeps dropping
-   * is what this alert is for. While mining is stopped or starting up the
-   * count is meaningless (0 until miners reconnect), so tracking restarts from
-   * the first count above 0.
-   */
-  private takeWorkerChange(
-    enabled: boolean,
-    previous: TelegramActivitySnapshot,
-    current: TelegramActivitySnapshot,
-  ): { from: number; to: number } | null {
-    if (!current.running || current.workers === null) {
-      if (!current.running) this.reportedWorkers = null;
-      return null;
-    }
-    // While the alert is off, follow the count so turning it on does not
-    // report changes from before.
-    if (!enabled) {
-      this.reportedWorkers = current.workers > 0 ? current.workers : null;
-      return null;
-    }
-
-    if (previous.running && previous.workers !== null && previous.workers > 0) {
-      this.reportedWorkers ??= previous.workers;
-    }
-    if (this.reportedWorkers === null) {
-      if (current.workers > 0) this.reportedWorkers = current.workers;
-      return null;
-    }
-    if (current.workers === this.reportedWorkers) return null;
-
-    const change = { from: this.reportedWorkers, to: current.workers };
-    this.reportedWorkers = current.workers;
-    return change;
   }
 
   private enqueue(messages: string[]): void {
@@ -1674,8 +1611,6 @@ export class TelegramService {
     this.lastActivityCheckAt = null;
     this.previousSnapshot = null;
     this.channelBaselines.clear();
-    this.reportedWorkers = null;
-    this.rejectedSharesAlert = { reported: null, sentAt: null };
     this.lastSummaryAt = null;
     this.lastKnownPool = null;
   }

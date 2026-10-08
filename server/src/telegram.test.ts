@@ -1070,31 +1070,20 @@ function alertsStartingWith(telegram: ReturnType<typeof createTelegramFetch>, pr
     .filter((text) => text.startsWith(prefix));
 }
 
-test('rejected-share alerts are sent at most once per 15 minutes without losing counts', async (t) => {
+test('every rejected-share increase is reported right away', async (t) => {
   const clock = { now: 1_000_000 };
   const { service, telegram } = await pairServiceWithClock(t, clock);
   await service.updateSettings({ notifyOnRejectedShares: true });
 
-  await service.poll(async () => snapshot({ sharesRejected: 2 }));
-  clock.now += 30_000;
-  await service.poll(async () => snapshot({ sharesRejected: 5 }));
-  assert.equal(alertsStartingWith(telegram, '⚠️').length, 1);
-  assert.match(alertsStartingWith(telegram, '⚠️')[0], /New rejected shares: 3/);
+  for (const sharesRejected of [2, 5, 9]) {
+    clock.now += 30_000;
+    await service.poll(async () => snapshot({ sharesRejected }));
+  }
 
-  // More rejects during the cooldown are held back...
-  clock.now += 30_000;
-  await service.poll(async () => snapshot({ sharesRejected: 9 }));
-  clock.now += 30_000;
-  await service.poll(async () => snapshot({ sharesRejected: 12 }));
-  assert.equal(alertsStartingWith(telegram, '⚠️').length, 1);
-
-  // ...and reported together once it is over.
-  clock.now += 15 * 60_000;
-  await service.poll(async () => snapshot({ sharesRejected: 12 }));
   const alerts = alertsStartingWith(telegram, '⚠️');
   assert.equal(alerts.length, 2);
-  assert.match(alerts[1], /New rejected shares: 7/);
-  assert.match(alerts[1], /Total rejected: 12/);
+  assert.match(alerts[0], /New rejected shares: 3/);
+  assert.match(alerts[1], /New rejected shares: 4\nTotal rejected: 9/);
 });
 
 test('a mining restart resets the rejected-share count without an alert', async (t) => {
@@ -1209,7 +1198,7 @@ test('losing every worker and the recovery get their own titles', async (t) => {
   assert.match(alerts[2], /^🟢 Workers back online\nWorkers: 0 → 3/);
 });
 
-test('restarting mining does not report workers dropping to 0 and back', async (t) => {
+test('after a restart, miners reconnecting are reported', async (t) => {
   const clock = { now: 1_000_000 };
   const { service, telegram } = await pairServiceWithClock(t, clock);
   await service.updateSettings({ notifyOnWorkerChange: true });
@@ -1225,10 +1214,10 @@ test('restarting mining does not report workers dropping to 0 and back', async (
     await service.poll(async () => snapshot(update));
   }
 
-  assert.equal(
-    telegram.callsFor('sendMessage').filter((call) => String(call.body.text).includes('Workers:')).length,
-    0,
-  );
+  const alerts = telegram.callsFor('sendMessage')
+    .map((call) => String(call.body.text))
+    .filter((text) => text.includes('Workers:'));
+  assert.deepEqual(alerts.map((text) => text.split('\n')[0]), ['🟢 Workers back online']);
 });
 
 test('the summary is still sent on time when alerts keep firing', async (t) => {
@@ -1309,4 +1298,38 @@ test('a saved pairing code without an expiry is replaced on load', async (t) => 
 
   const reloaded = new TelegramService(settingsFile, telegram.fetchImplementation);
   assert.notEqual((await reloaded.getSettings()).pairingUrl, connected.pairingUrl);
+});
+
+test('pairing explains a /start sent without the pairing code', async (t) => {
+  const settingsFile = await createSettingsFile(t);
+  const telegram = createTelegramFetch({ getMe: [BOT] });
+  const service = new TelegramService(settingsFile, telegram.fetchImplementation);
+  await service.connectBot(BOT_TOKEN);
+
+  // What Telegram sends when the bot is opened from search or BotFather.
+  telegram.enqueue('getUpdates', [{
+    update_id: 1,
+    message: { message_id: 1, text: '/start', chat: { id: 987, type: 'private' } },
+  }]);
+  await assert.rejects(service.pairChat(), /without the pairing code.*Open Telegram button/);
+
+  await assert.rejects(service.pairChat(), /No \/start from the pairing link yet/);
+});
+
+test('a first miner connecting to an empty farm is reported', async (t) => {
+  const clock = { now: 1_000_000 };
+  const { service, telegram } = await pairServiceWithClock(t, clock);
+  await service.updateSettings({ notifyOnWorkerChange: true });
+
+  await service.poll(async () => snapshot({ workers: 0 }));
+  clock.now += 30_000;
+  await service.poll(async () => snapshot({ workers: 0 }));
+  clock.now += 30_000;
+  await service.poll(async () => snapshot({ workers: 1 }));
+
+  const alerts = telegram.callsFor('sendMessage')
+    .map((call) => String(call.body.text))
+    .filter((text) => text.includes('Workers:'));
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0], /Workers: 0 → 1/);
 });

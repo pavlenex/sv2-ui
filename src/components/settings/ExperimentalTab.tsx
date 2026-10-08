@@ -183,7 +183,7 @@ export function ExperimentalTab() {
                   and copy its token.
                 </li>
                 <li>Paste the token below and connect.</li>
-                <li>Open the bot in Telegram, press Start, then check pairing.</li>
+                <li>Use Open Telegram below, press Start in that chat, then check pairing.</li>
               </ol>
             )}
 
@@ -222,7 +222,7 @@ export function ExperimentalTab() {
               <div className="space-y-3">
                 <SettingRow
                   title={`${settings.botName ?? 'Telegram bot'} · @${settings.botUsername}`}
-                  description="Open Telegram, press Start, then check pairing."
+                  description="Only the Open Telegram button links your chat. Starting the bot from BotFather or search won't."
                 />
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" onClick={openPairingLink} disabled={!settings.pairingUrl}>
