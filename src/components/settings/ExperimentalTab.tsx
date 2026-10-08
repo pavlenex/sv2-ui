@@ -6,6 +6,7 @@ import {
   Send,
   Unplug,
 } from 'lucide-react';
+import { formatSummaryInterval, TELEGRAM_SUMMARY_INTERVALS } from '@sv2-ui/shared';
 
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -26,21 +27,6 @@ const ALERT_OPTIONS: ReadonlyArray<{ key: AlertOptionKey; title: string }> = [
   { key: 'notifyOnWorkerChange', title: 'Worker changes' },
   { key: 'notifyOnRejectedShares', title: 'Rejected shares' },
 ];
-
-// Same choices as the summary button of the Telegram /settings menu.
-const SUMMARY_INTERVAL_OPTIONS = [0, 15, 60, 6 * 60];
-
-function getSummaryOptions(current: number): number[] {
-  return SUMMARY_INTERVAL_OPTIONS.includes(current)
-    ? SUMMARY_INTERVAL_OPTIONS
-    : [...SUMMARY_INTERVAL_OPTIONS, current].sort((left, right) => left - right);
-}
-
-function formatSummaryInterval(minutes: number): string {
-  if (minutes === 0) return 'Off';
-  if (minutes % 60 === 0) return `Every ${minutes / 60} h`;
-  return `Every ${minutes} min`;
-}
 
 const TELEGRAM_EXPERIMENT_STORAGE_KEY = 'sv2-ui-experiment-telegram-enabled';
 
@@ -334,7 +320,7 @@ export function ExperimentalTab() {
                       disabled={isPending || !settings.enabled}
                       className="h-8 w-32 shrink-0 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15 disabled:opacity-50"
                     >
-                      {getSummaryOptions(settings.summaryIntervalMinutes).map((minutes) => (
+                      {TELEGRAM_SUMMARY_INTERVALS.map((minutes) => (
                         <option key={minutes} value={minutes}>
                           {formatSummaryInterval(minutes)}
                         </option>

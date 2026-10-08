@@ -19,6 +19,7 @@ import {
   toTelegramApiError,
   toTelegramMiningChannel,
 } from './telegram.js';
+import { TELEGRAM_SUMMARY_INTERVALS } from '@sv2-ui/shared';
 import type { TelegramActivitySnapshot } from './telegram.js';
 
 const BOT_TOKEN = '123456:AAE-test_token-0123456789abcdef';
@@ -1133,7 +1134,7 @@ test('a mining restart resets the rejected-share count without an alert', async 
   assert.match(alerts[0], /New rejected shares: 1/);
 });
 
-test('a flapping worker sends one alert, and a net change after the cooldown', async (t) => {
+test('every worker change is reported, including a miner that keeps dropping', async (t) => {
   const clock = { now: 1_000_000 };
   const { service, telegram } = await pairServiceWithClock(t, clock);
   await service.updateSettings({ notifyOnWorkerChange: true });
@@ -1142,23 +1143,15 @@ test('a flapping worker sends one alert, and a net change after the cooldown', a
     .filter((text) => text.includes('Workers:'));
 
   await service.poll(async () => snapshot({ workers: 5 }));
-  clock.now += 30_000;
-  await service.poll(async () => snapshot({ workers: 4 }));
-  assert.match(workerAlerts()[0], /Worker disconnected\nWorkers: 5 → 4/);
-
-  // Back and forth within the cooldown: nothing.
-  for (const workers of [5, 4, 5, 4]) {
+  for (const workers of [4, 5, 4, 5]) {
     clock.now += 30_000;
     await service.poll(async () => snapshot({ workers }));
   }
-  clock.now += 15 * 60_000;
-  await service.poll(async () => snapshot({ workers: 4 }));
-  assert.equal(workerAlerts().length, 1);
 
-  // A real change after the cooldown is reported right away.
-  clock.now += 30_000;
-  await service.poll(async () => snapshot({ workers: 3 }));
-  assert.match(workerAlerts()[1], /Workers: 4 → 3/);
+  const alerts = workerAlerts();
+  assert.equal(alerts.length, 4);
+  assert.match(alerts[0], /^🟠 Worker disconnected\nWorkers: 5 → 4/);
+  assert.match(alerts[1], /^🟢 Worker connected\nWorkers: 4 → 5/);
 });
 
 test('turning an alert on does not report changes from before', async (t) => {
@@ -1171,6 +1164,89 @@ test('turning an alert on does not report changes from before', async (t) => {
   await service.updateSettings({ notifyOnWorkerChange: true });
   clock.now += 30_000;
   await service.poll(async () => snapshot({ workers: 2 }));
+  assert.equal(
+    telegram.callsFor('sendMessage').filter((call) => String(call.body.text).includes('Workers:')).length,
+    0,
+  );
+});
+
+test('the summary interval only takes the shared options', async (t) => {
+  const { service } = await pairService(t);
+
+  await assert.rejects(service.updateSettings({ summaryIntervalMinutes: 120 }), TelegramConfigError);
+  for (const minutes of TELEGRAM_SUMMARY_INTERVALS) {
+    assert.equal((await service.updateSettings({ summaryIntervalMinutes: minutes })).summaryIntervalMinutes, minutes);
+  }
+});
+
+test('the /settings summary button cycles through the shared options', async (t) => {
+  const { service, telegram } = await pairService(t);
+  const seen: number[] = [];
+
+  for (let index = 0; index < TELEGRAM_SUMMARY_INTERVALS.length; index += 1) {
+    telegram.enqueue('getUpdates', [{
+      update_id: 100 + index,
+      callback_query: {
+        id: `summary-${index}`,
+        data: 'sv2:toggle:summary',
+        message: { message_id: 9, chat: { id: 987, type: 'private', first_name: 'Miner' } },
+      },
+    }]);
+    await service.poll(async () => snapshot());
+    seen.push((await service.getSettings()).summaryIntervalMinutes);
+  }
+
+  assert.deepEqual(seen, [...TELEGRAM_SUMMARY_INTERVALS.slice(1), TELEGRAM_SUMMARY_INTERVALS[0]]);
+  assert.match(String(telegram.callsFor('editMessageText').at(-1)?.body.text), /Summary: Off/);
+});
+
+test('an old summary value outside the options loads as off', async (t) => {
+  const { settingsFile } = await pairService(t);
+  const saved = JSON.parse(await fs.readFile(settingsFile, 'utf8'));
+  await fs.writeFile(settingsFile, JSON.stringify({ ...saved, summaryIntervalMinutes: 120 }));
+
+  const service = new TelegramService(settingsFile, createTelegramFetch().fetchImplementation);
+  assert.equal((await service.getSettings()).summaryIntervalMinutes, 0);
+});
+
+test('losing every worker and the recovery get their own titles', async (t) => {
+  const clock = { now: 1_000_000 };
+  const { service, telegram } = await pairServiceWithClock(t, clock);
+  await service.updateSettings({ notifyOnWorkerChange: true });
+  const workerAlerts = () => telegram.callsFor('sendMessage')
+    .map((call) => String(call.body.text))
+    .filter((text) => text.includes('Workers:'));
+
+  await service.poll(async () => snapshot({ workers: 3 }));
+  clock.now += 30_000;
+  await service.poll(async () => snapshot({ workers: 2 }));
+  clock.now += 30_000;
+  await service.poll(async () => snapshot({ workers: 0 }));
+  clock.now += 30_000;
+  await service.poll(async () => snapshot({ workers: 3 }));
+
+  const alerts = workerAlerts();
+  assert.equal(alerts.length, 3);
+  assert.match(alerts[1], /^🔴 All workers disconnected\nWorkers: 2 → 0/);
+  assert.match(alerts[2], /^🟢 Workers back online\nWorkers: 0 → 3/);
+});
+
+test('restarting mining does not report workers dropping to 0 and back', async (t) => {
+  const clock = { now: 1_000_000 };
+  const { service, telegram } = await pairServiceWithClock(t, clock);
+  await service.updateSettings({ notifyOnWorkerChange: true });
+
+  await service.poll(async () => snapshot({ workers: 5 }));
+  // Stopped, then starting with no miners connected yet, then miners back.
+  for (const update of [
+    { running: false, workers: null },
+    { running: true, workers: 0 },
+    { running: true, workers: 5 },
+  ]) {
+    clock.now += 30_000;
+    await service.poll(async () => snapshot(update));
+  }
+
   assert.equal(
     telegram.callsFor('sendMessage').filter((call) => String(call.body.text).includes('Workers:')).length,
     0,

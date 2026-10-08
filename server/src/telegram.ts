@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { formatSummaryInterval, TELEGRAM_SUMMARY_INTERVALS } from '@sv2-ui/shared';
+
 import { writeFileAtomically } from './atomic-write.js';
 import { readJsonWithLimit } from './bounded-json.js';
 import { ensureConfigDir } from './config-dir.js';
@@ -21,16 +23,13 @@ const BOT_TOKEN_PATTERN = /^\d{1,20}:[A-Za-z0-9_-]{20,100}$/;
 const BOT_USERNAME_PATTERN = /^[A-Za-z0-9_]{1,64}$/;
 export const MAX_MONITORING_ITEMS = 5_000;
 
-// Worker and rejected-share alerts can change every check on a busy farm, so
-// after one is sent the next waits at least this long.
+// The rejected-share count can rise on every check while something is wrong,
+// so after one alert the next waits at least this long.
 const COUNT_ALERT_COOLDOWN_MS = 15 * 60_000;
 
 // One record per mode and pool; 17 pools in two modes stay well below this.
 const MAX_BEST_DIFFICULTY_RECORDS = 64;
 
-const MIN_SUMMARY_INTERVAL_MINUTES = 15;
-const MAX_SUMMARY_INTERVAL_MINUTES = 24 * 60;
-const SUMMARY_INTERVAL_OPTIONS = [0, 15, 60, 6 * 60] as const;
 
 type FetchImplementation = typeof fetch;
 
@@ -741,12 +740,6 @@ function getBestDifficultyMessage(
   return lines.join('\n');
 }
 
-function formatSummaryInterval(minutes: number): string {
-  if (minutes === 0) return 'Off';
-  if (minutes % 60 === 0) return `${minutes / 60}h`;
-  return `${minutes}m`;
-}
-
 function getSettingsMessage(settings: SavedTelegramSettings): string {
   return [
     '⚙️ SV2 Telegram alerts',
@@ -797,12 +790,16 @@ function getHelpMessage(): string {
   ].join('\n');
 }
 
+function isSummaryInterval(value: unknown): value is number {
+  return (TELEGRAM_SUMMARY_INTERVALS as readonly unknown[]).includes(value);
+}
+
 function cycleSummaryInterval(current: number): number {
-  const currentIndex = SUMMARY_INTERVAL_OPTIONS.indexOf(
-    current as typeof SUMMARY_INTERVAL_OPTIONS[number]
+  const currentIndex = TELEGRAM_SUMMARY_INTERVALS.indexOf(
+    current as typeof TELEGRAM_SUMMARY_INTERVALS[number]
   );
-  return SUMMARY_INTERVAL_OPTIONS[
-    currentIndex === -1 ? 0 : (currentIndex + 1) % SUMMARY_INTERVAL_OPTIONS.length
+  return TELEGRAM_SUMMARY_INTERVALS[
+    currentIndex === -1 ? 0 : (currentIndex + 1) % TELEGRAM_SUMMARY_INTERVALS.length
   ];
 }
 
@@ -865,8 +862,8 @@ type CountAlertState = { reported: number | null; sentAt: number | null };
 /**
  * Returns the change to report for a rate-limited alert, or null. The first
  * change is reported at once; later ones wait for the cooldown and then
- * report everything since the last alert, so nothing is lost and a worker
- * that drops and comes back in between sends nothing.
+ * report everything since the last alert, so nothing is lost and a value
+ * that goes up and back down in between sends nothing.
  */
 function takeCountChange(
   state: CountAlertState,
@@ -900,7 +897,7 @@ export class TelegramService {
   private channelBaselines = new Map<string, TelegramMiningChannel>();
   private lastSummaryAt: number | null = null;
   private lastKnownPool: { name: string; index: number } | null = null;
-  private workerAlert: CountAlertState = { reported: null, sentAt: null };
+  private reportedWorkers: number | null = null;
   private rejectedSharesAlert: CountAlertState = { reported: null, sentAt: null };
   private lastActivityCheckAt: number | null = null;
   /** Alerts not yet delivered, oldest first. */
@@ -930,6 +927,8 @@ export class TelegramService {
       if (!parsed) {
         throw new TelegramConfigError('Stored Telegram settings are invalid');
       }
+      // Older files could hold any number of minutes; fall back to off.
+      if (!isSummaryInterval(parsed.summaryIntervalMinutes)) parsed.summaryIntervalMinutes = 0;
       this.settings = parsed;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -1072,9 +1071,9 @@ export class TelegramService {
     }
     if (
       provided.summaryIntervalMinutes !== undefined &&
-      !Number.isInteger(provided.summaryIntervalMinutes)
+      !isSummaryInterval(provided.summaryIntervalMinutes)
     ) {
-      throw new TelegramConfigError('Summary interval must be a whole number of minutes');
+      throw new TelegramConfigError('Choose one of the summary options');
     }
     const next = {
       ...settings,
@@ -1102,18 +1101,6 @@ export class TelegramService {
     ] as const;
     if (booleanKeys.some((key) => typeof next[key] !== 'boolean')) {
       throw new TelegramConfigError('Notification settings must be true or false');
-    }
-    if (
-      !Number.isInteger(next.summaryIntervalMinutes) ||
-      (next.summaryIntervalMinutes !== 0 &&
-        (
-          next.summaryIntervalMinutes < MIN_SUMMARY_INTERVAL_MINUTES ||
-          next.summaryIntervalMinutes > MAX_SUMMARY_INTERVAL_MINUTES
-        ))
-    ) {
-      throw new TelegramConfigError(
-        `Summary interval must be 0 (off) or ${MIN_SUMMARY_INTERVAL_MINUTES}-${MAX_SUMMARY_INTERVAL_MINUTES} minutes`
-      );
     }
 
     this.settings = next;
@@ -1304,18 +1291,15 @@ export class TelegramService {
       if (statusMessage) messages.push(statusMessage);
     }
 
-    // While an alert is off, keep its last value current so turning it on
-    // does not report changes from before.
-    if (!settings.notifyOnWorkerChange) this.workerAlert.reported = current.workers;
-    const workerChange = settings.notifyOnWorkerChange
-      ? takeCountChange(this.workerAlert, previous.workers, current.workers, now)
-      : null;
+    const workerChange = this.takeWorkerChange(settings.notifyOnWorkerChange, previous, current);
     if (workerChange) {
+      const { from, to } = workerChange;
+      let title = to > from ? '🟢 Worker connected' : '🟠 Worker disconnected';
+      if (to === 0) title = '🔴 All workers disconnected';
+      else if (from === 0) title = '🟢 Workers back online';
       messages.push([
-        workerChange.to > workerChange.from
-          ? '🟢 Worker connected'
-          : '🟠 Worker disconnected',
-        `Workers: ${workerChange.from.toLocaleString()} → ${workerChange.to.toLocaleString()}`,
+        title,
+        `Workers: ${from.toLocaleString()} → ${to.toLocaleString()}`,
       ].join('\n'));
     }
 
@@ -1340,6 +1324,42 @@ export class TelegramService {
     }
 
     return messages;
+  }
+
+  /**
+   * Every change in the worker count is reported: a miner that keeps dropping
+   * is what this alert is for. While mining is stopped or starting up the
+   * count is meaningless (0 until miners reconnect), so tracking restarts from
+   * the first count above 0.
+   */
+  private takeWorkerChange(
+    enabled: boolean,
+    previous: TelegramActivitySnapshot,
+    current: TelegramActivitySnapshot,
+  ): { from: number; to: number } | null {
+    if (!current.running || current.workers === null) {
+      if (!current.running) this.reportedWorkers = null;
+      return null;
+    }
+    // While the alert is off, follow the count so turning it on does not
+    // report changes from before.
+    if (!enabled) {
+      this.reportedWorkers = current.workers > 0 ? current.workers : null;
+      return null;
+    }
+
+    if (previous.running && previous.workers !== null && previous.workers > 0) {
+      this.reportedWorkers ??= previous.workers;
+    }
+    if (this.reportedWorkers === null) {
+      if (current.workers > 0) this.reportedWorkers = current.workers;
+      return null;
+    }
+    if (current.workers === this.reportedWorkers) return null;
+
+    const change = { from: this.reportedWorkers, to: current.workers };
+    this.reportedWorkers = current.workers;
+    return change;
   }
 
   private enqueue(messages: string[]): void {
@@ -1656,7 +1676,7 @@ export class TelegramService {
     this.lastActivityCheckAt = null;
     this.previousSnapshot = null;
     this.channelBaselines.clear();
-    this.workerAlert = { reported: null, sentAt: null };
+    this.reportedWorkers = null;
     this.rejectedSharesAlert = { reported: null, sentAt: null };
     this.lastSummaryAt = null;
     this.lastKnownPool = null;
