@@ -10,12 +10,14 @@ import {
   formatPoolName,
   formatWorkerName,
   mapWithConcurrency,
+  getSingleMinerChannelIds,
   getTelegramWorkerCount,
   getStatusChangeMessage,
   TelegramApiError,
   TelegramConfigError,
   TelegramService,
   toTelegramApiError,
+  toTelegramMiningChannel,
 } from './telegram.js';
 import type { TelegramActivitySnapshot } from './telegram.js';
 
@@ -135,23 +137,59 @@ test('returns no partial monitoring snapshot when a later page fails', async () 
   assert.equal(items, null);
 });
 
-test('counts JD channels as workers instead of downstream connections', () => {
-  assert.equal(
-    getTelegramWorkerCount(
-      true,
-      { total_clients: 4 },
-      { total_channels: 17 },
-    ),
-    17,
+test('counts workers like the dashboard', () => {
+  // Translator only: the SV1 miners.
+  assert.equal(getTelegramWorkerCount(false, 4, 0), 4);
+  // JD mode: SV1 miners behind the translator plus direct SV2 channels. JDC's
+  // own channel count would show an aggregated translator as one worker.
+  assert.equal(getTelegramWorkerCount(true, 3, 2), 5);
+  assert.equal(getTelegramWorkerCount(true, 3, null), null);
+  assert.equal(getTelegramWorkerCount(true, undefined, 2), null);
+});
+
+test('names a translator channel only when one miner uses it', () => {
+  // Not aggregated: every miner has its own upstream channel.
+  assert.deepEqual(
+    [...getSingleMinerChannelIds([{ channel_id: 7 }, { channel_id: 8 }])].sort(),
+    [7, 8],
   );
+  // Aggregated: miners get local channel ids, none matching the shared
+  // upstream channel, so that channel is never named.
+  const aggregated = getSingleMinerChannelIds([{ channel_id: 1 }, { channel_id: 2 }]);
+  assert.equal(aggregated.has(42), false);
+  // A channel id shared by several miners is not named either.
+  assert.equal(getSingleMinerChannelIds([{ channel_id: 7 }, { channel_id: 7 }]).has(7), false);
+  assert.equal(getSingleMinerChannelIds([{ channel_id: null }, {}]).size, 0);
+
+  const channel = { channel_id: 42, user_identity: 'acct.translator-proxy', blocks_found: 0, best_diff: 1 };
+  assert.equal(toTelegramMiningChannel('translator:server', 'extended', channel, false)?.userIdentity, null);
   assert.equal(
-    getTelegramWorkerCount(
-      false,
-      { total_clients: 4 },
-      { total_channels: 17 },
-    ),
-    4,
+    toTelegramMiningChannel('translator:server', 'extended', channel, true)?.userIdentity,
+    'acct.translator-proxy',
   );
+});
+
+test('leaves the worker out of alerts for a shared channel', async (t) => {
+  const { service, telegram } = await pairService(t);
+  const shared = (blocksFound: number, bestDifficulty: number) => snapshot({
+    channels: [{
+      key: 'translator:server:extended:42:acct.translator-proxy',
+      userIdentity: null,
+      blocksFound,
+      bestDifficulty,
+    }],
+  });
+
+  await service.poll(async () => shared(0, 1250));
+  await service.poll(async () => shared(0, 9000));
+  const bestDifficulty = String(telegram.callsFor('sendMessage').at(-1)?.body.text);
+  assert.match(bestDifficulty, /^🏆 New best difficulty!/);
+  assert.doesNotMatch(bestDifficulty, /Worker:/);
+
+  await service.poll(async () => shared(1, 9000));
+  const block = String(telegram.callsFor('sendMessage').at(-1)?.body.text);
+  assert.match(block, /^🎉 Block found!/);
+  assert.doesNotMatch(block, /Worker:/);
 });
 
 async function pairService(

@@ -66,11 +66,13 @@ import { readJsonWithLimit } from './bounded-json.js';
 import {
   MAX_MONITORING_ITEMS,
   collectPaginatedMonitoringItems,
+  getSingleMinerChannelIds,
   getTelegramWorkerCount,
   mapWithConcurrency,
   TelegramApiError,
   TelegramConfigError,
   TelegramService,
+  toTelegramMiningChannel,
 } from './telegram.js';
 import type {
   MonitoringBudget,
@@ -1100,6 +1102,11 @@ type MonitoringChannelsPage<T> = {
 
 type MonitoringClient = {
   client_id: number;
+  client_kind?: string;
+};
+
+type MonitoringSv1Client = {
+  channel_id?: number | null;
 };
 
 type MonitoringItemsPage<T> = {
@@ -1210,30 +1217,6 @@ async function fetchAllMonitoringItems<T>(
   }, undefined, undefined, context.budget);
 }
 
-function toTelegramMiningChannel(
-  keyPrefix: string,
-  kind: TaggedMonitoringChannel<unknown>['kind'],
-  channel: Partial<MonitoringMiningChannel>,
-): TelegramMiningChannel | null {
-  if (
-    !isJsonObject(channel) ||
-    !Number.isSafeInteger(channel.channel_id) ||
-    typeof channel.user_identity !== 'string' ||
-    !Number.isSafeInteger(channel.blocks_found) ||
-    typeof channel.best_diff !== 'number' ||
-    !Number.isFinite(channel.best_diff)
-  ) {
-    return null;
-  }
-
-  return {
-    key: `${keyPrefix}:${kind}:${channel.channel_id}:${channel.user_identity}`,
-    userIdentity: channel.user_identity,
-    blocksFound: channel.blocks_found as number,
-    bestDifficulty: channel.best_diff,
-  };
-}
-
 function sumShareCounter(
   channels: TaggedMonitoringChannel<MonitoringServerChannel>[] | null,
   field: 'shares_submitted' | 'shares_acknowledged' | 'shares_rejected',
@@ -1267,59 +1250,92 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
   }
 
   const isJdMode = status.mode === 'jd';
-  const containerName = isJdMode ? 'sv2-jdc' : 'sv2-translator';
-  const port = isJdMode ? JDC_MONITORING_PORT : TRANSLATOR_MONITORING_PORT;
-  const baseUrl = `${getContainerUrl(containerName, port)}/api/v1`;
+  const translatorUrl = `${getContainerUrl('sv2-translator', TRANSLATOR_MONITORING_PORT)}/api/v1`;
+  const jdcUrl = `${getContainerUrl('sv2-jdc', JDC_MONITORING_PORT)}/api/v1`;
   const context: MonitoringReadContext = {
     signal: AbortSignal.timeout(TELEGRAM_SNAPSHOT_TIMEOUT_MS),
     budget: { remainingItems: TELEGRAM_SNAPSHOT_MAX_ITEMS },
   };
-  const [global, serverChannels, monitoringClients] = await Promise.all([
-    fetchMonitoringJson<MonitoringGlobal>(`${baseUrl}/global`, context),
-    fetchAllMonitoringChannels<MonitoringServerChannel>(`${baseUrl}/server/channels`, context),
+  // SV1 miners always go through the translator, in JD mode too: its upstream
+  // channels hold their blocks and best difficulty. Reading them there rather
+  // than from JDC's translator_proxy client keeps each block counted once.
+  const [
+    translatorGlobal,
+    translatorChannels,
+    sv1Clients,
+    jdcGlobal,
+    jdcServerChannels,
+    jdcClients,
+  ] = await Promise.all([
+    fetchMonitoringJson<MonitoringGlobal>(`${translatorUrl}/global`, context),
+    fetchAllMonitoringChannels<MonitoringServerChannel>(`${translatorUrl}/server/channels`, context),
+    fetchAllMonitoringItems<MonitoringSv1Client>(`${translatorUrl}/sv1/clients`, context),
     isJdMode
-      ? fetchAllMonitoringItems<MonitoringClient>(`${baseUrl}/clients`, context)
+      ? fetchMonitoringJson<MonitoringGlobal>(`${jdcUrl}/global`, context)
+      : Promise.resolve(null),
+    isJdMode
+      ? fetchAllMonitoringChannels<MonitoringServerChannel>(`${jdcUrl}/server/channels`, context)
+      : Promise.resolve(null),
+    isJdMode
+      ? fetchAllMonitoringItems<MonitoringClient>(`${jdcUrl}/clients`, context)
       : Promise.resolve(null),
   ]);
 
+  const global = isJdMode ? jdcGlobal : translatorGlobal;
   const clients = isJdMode ? global?.sv2_clients : global?.sv1_clients;
-  let miningChannels: TelegramMiningChannel[] | null = null;
+  const serverChannels = isJdMode ? jdcServerChannels : translatorChannels;
 
-  const clientIdsAreValid = monitoringClients?.every((client) =>
+  let sv1Channels: TelegramMiningChannel[] | null = null;
+  if (translatorChannels && sv1Clients) {
+    const singleMinerChannelIds = getSingleMinerChannelIds(sv1Clients);
+    sv1Channels = translatorChannels.flatMap(({ kind, channel }) => (
+      toTelegramMiningChannel(
+        'translator:server',
+        kind,
+        channel,
+        singleMinerChannelIds.has(channel.channel_id),
+      ) ?? []
+    ));
+  }
+
+  // SV2 miners connected straight to JDC. The translator_proxy client is the
+  // translator itself, already covered above.
+  let directSv2Channels: TelegramMiningChannel[] | null = isJdMode ? null : [];
+  const clientIdsAreValid = jdcClients?.every((client) =>
     isJsonObject(client) && Number.isSafeInteger(client.client_id) && client.client_id >= 0
   ) ?? false;
 
   if (
-    isJdMode &&
-    monitoringClients &&
+    jdcClients &&
     clientIdsAreValid &&
-    monitoringClients.length <= MAX_TELEGRAM_MONITORED_CLIENTS
+    jdcClients.length <= MAX_TELEGRAM_MONITORED_CLIENTS
   ) {
+    const minerClients = jdcClients.filter((client) => client.client_kind !== 'translator_proxy');
     const downstreamResponses = await mapWithConcurrency(
-      monitoringClients,
+      minerClients,
       TELEGRAM_MONITORING_CONCURRENCY,
       async (client) => ({
         clientId: client.client_id,
         channels: await fetchAllMonitoringChannels<MonitoringMiningChannel>(
-          `${baseUrl}/clients/${client.client_id}/channels`,
+          `${jdcUrl}/clients/${client.client_id}/channels`,
           context,
         ),
       }),
     );
 
     if (downstreamResponses.every((response) => response.channels !== null)) {
-      miningChannels = downstreamResponses.flatMap(({ clientId, channels }) => {
+      directSv2Channels = downstreamResponses.flatMap(({ clientId, channels }) => {
         if (!channels) return [];
         return channels.flatMap(({ kind, channel }) => (
-          toTelegramMiningChannel(`jdc:${clientId}`, kind, channel) ?? []
+          toTelegramMiningChannel(`jdc:${clientId}`, kind, channel, true) ?? []
         ));
       });
     }
-  } else if (!isJdMode && serverChannels) {
-    miningChannels = serverChannels.flatMap(({ kind, channel }) => (
-      toTelegramMiningChannel('translator:server', kind, channel) ?? []
-    ));
   }
+
+  const miningChannels = sv1Channels && directSv2Channels
+    ? [...directSv2Channels, ...sv1Channels]
+    : null;
 
   // A snapshot that ran out of time or items is incomplete. Report it as
   // unknown so the round is skipped instead of comparing partial data.
@@ -1346,8 +1362,8 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
     hashrate: clients?.total_hashrate ?? global?.server?.total_hashrate ?? null,
     workers: getTelegramWorkerCount(
       isJdMode,
-      global?.sv1_clients,
-      global?.sv2_clients,
+      translatorGlobal?.sv1_clients?.total_clients,
+      directSv2Channels?.length ?? null,
     ),
     sharesSubmitted: sumShareCounter(serverChannels, 'shares_submitted'),
     sharesAccepted: sumShareCounter(serverChannels, 'shares_acknowledged'),

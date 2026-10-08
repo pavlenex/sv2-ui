@@ -121,7 +121,8 @@ export type TelegramSettingsUpdate = Partial<TelegramAlertSettings>;
 
 export type TelegramMiningChannel = {
   key: string;
-  userIdentity: string;
+  /** Null when several miners share the channel, so no single worker can be named. */
+  userIdentity: string | null;
   blocksFound: number;
   bestDifficulty: number;
 };
@@ -267,14 +268,64 @@ function truncateMessage(text: string): string {
     : text;
 }
 
+/**
+ * Workers the same way the dashboard counts them: SV1 miners on the
+ * translator, plus in JD mode the channels of SV2 miners connected straight to
+ * JDC. JDC's own count would show the translator as one worker.
+ */
 export function getTelegramWorkerCount(
   isJdMode: boolean,
-  sv1Clients: { total_clients: number } | null | undefined,
-  sv2Clients: { total_channels: number } | null | undefined,
+  sv1Miners: number | null | undefined,
+  directSv2Channels: number | null,
 ): number | null {
-  return isJdMode
-    ? sv2Clients?.total_channels ?? null
-    : sv1Clients?.total_clients ?? null;
+  if (typeof sv1Miners !== 'number') return null;
+  if (!isJdMode) return sv1Miners;
+  return directSv2Channels === null ? null : sv1Miners + directSv2Channels;
+}
+
+/**
+ * Translator channel ids used by exactly one SV1 miner. Only those channels
+ * belong to a single worker: with aggregation the miners get local channel ids
+ * and none of them matches the shared upstream channel.
+ */
+export function getSingleMinerChannelIds(
+  sv1Clients: ReadonlyArray<{ channel_id?: unknown }>,
+): Set<number> {
+  const counts = new Map<number, number>();
+  for (const client of sv1Clients) {
+    const channelId = isObject(client) ? client.channel_id : undefined;
+    if (typeof channelId === 'number') counts.set(channelId, (counts.get(channelId) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, count]) => count === 1).map(([channelId]) => channelId));
+}
+
+/**
+ * Validates one monitoring channel. `named` says whether the channel belongs
+ * to a single miner; otherwise alerts leave the worker out.
+ */
+export function toTelegramMiningChannel(
+  keyPrefix: string,
+  kind: 'extended' | 'standard',
+  channel: unknown,
+  named: boolean,
+): TelegramMiningChannel | null {
+  if (
+    !isObject(channel) ||
+    !Number.isSafeInteger(channel.channel_id) ||
+    typeof channel.user_identity !== 'string' ||
+    !Number.isSafeInteger(channel.blocks_found) ||
+    typeof channel.best_diff !== 'number' ||
+    !Number.isFinite(channel.best_diff)
+  ) {
+    return null;
+  }
+
+  return {
+    key: `${keyPrefix}:${kind}:${channel.channel_id}:${channel.user_identity}`,
+    userIdentity: named ? channel.user_identity : null,
+    blocksFound: channel.blocks_found as number,
+    bestDifficulty: channel.best_diff,
+  };
 }
 
 export class TelegramConfigError extends Error {}
@@ -621,7 +672,9 @@ function getBlockFoundMessages(
     const delta = channel.blocksFound - before.blocksFound;
     const lines = ['🎉 Block found!'];
     if (current.poolName) lines.push(`Pool: ${formatPoolName(current.poolName)}`);
-    lines.push(`Worker: ${formatWorkerName(channel.userIdentity)}`);
+    if (channel.userIdentity !== null) {
+      lines.push(`Worker: ${formatWorkerName(channel.userIdentity)}`);
+    }
     lines.push(
       delta === 1
         ? `Channel total: ${channel.blocksFound.toLocaleString()}`
@@ -653,7 +706,9 @@ function getBestDifficultyMessage(
 
   const lines = ['🏆 New best difficulty!'];
   if (current.poolName) lines.push(`Pool: ${formatPoolName(current.poolName)}`);
-  lines.push(`Worker: ${formatWorkerName(improved.userIdentity)}`);
+  if (improved.userIdentity !== null) {
+    lines.push(`Worker: ${formatWorkerName(improved.userIdentity)}`);
+  }
   lines.push(`Difficulty: ${formatDifficulty(improved.bestDifficulty)}`);
   return lines.join('\n');
 }
