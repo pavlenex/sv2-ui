@@ -1358,6 +1358,8 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
   return {
     running: true,
     poolName: status.poolName,
+    // Same key as the dashboard's Best Difficulty tile (mode + active pool).
+    recordKey: status.poolName ? `${status.mode}:${status.poolName}` : null,
     activePoolIndex: status.activePoolIndex,
     hashrate: clients?.total_hashrate ?? global?.server?.total_hashrate ?? null,
     workers: getTelegramWorkerCount(

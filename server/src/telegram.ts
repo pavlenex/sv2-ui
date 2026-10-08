@@ -21,6 +21,9 @@ const BOT_TOKEN_PATTERN = /^\d{1,20}:[A-Za-z0-9_-]{20,100}$/;
 const BOT_USERNAME_PATTERN = /^[A-Za-z0-9_]{1,64}$/;
 export const MAX_MONITORING_ITEMS = 5_000;
 
+// One record per mode and pool; 17 pools in two modes stay well below this.
+const MAX_BEST_DIFFICULTY_RECORDS = 64;
+
 const MIN_SUMMARY_INTERVAL_MINUTES = 15;
 const MAX_SUMMARY_INTERVAL_MINUTES = 24 * 60;
 const SUMMARY_INTERVAL_OPTIONS = [0, 15, 60, 6 * 60] as const;
@@ -88,6 +91,11 @@ type SavedTelegramSettings = TelegramAlertSettings & {
   chatId: number | null;
   recipient: string | null;
   lastUpdateId: number | null;
+  /**
+   * Best difficulty seen per `mode:pool`, the same key the dashboard's Best
+   * Difficulty tile uses, so alerts and the tile agree. Oldest first.
+   */
+  bestDifficultyRecords?: Array<[string, number]>;
 };
 
 type LegacySavedTelegramSettings = {
@@ -136,6 +144,8 @@ export type TelegramActivitySnapshot = {
   unavailable?: boolean;
   running: boolean;
   poolName: string | null;
+  /** `mode:pool` the best-difficulty record belongs to; null while the pool is unknown. */
+  recordKey?: string | null;
   activePoolIndex: number | null;
   hashrate: number | null;
   workers: number | null;
@@ -517,7 +527,19 @@ function parseSavedSettings(value: unknown): SavedTelegramSettings | null {
     return null;
   }
 
-  return value as SavedTelegramSettings;
+  // Records are only a convenience: drop malformed entries instead of
+  // rejecting the whole file.
+  const records = Array.isArray(value.bestDifficultyRecords)
+    ? value.bestDifficultyRecords.filter((entry): entry is [string, number] =>
+      Array.isArray(entry) &&
+      typeof entry[0] === 'string' &&
+      typeof entry[1] === 'number' &&
+      Number.isFinite(entry[1]) &&
+      entry[1] >= 0
+    ).slice(-MAX_BEST_DIFFICULTY_RECORDS)
+    : [];
+
+  return { ...(value as SavedTelegramSettings), bestDifficultyRecords: records };
 }
 
 function getRecipientLabel(chat: TelegramChat): string {
@@ -688,18 +710,19 @@ function getBlockFoundMessages(
 function getBestDifficultyMessage(
   previous: TelegramActivitySnapshot,
   current: TelegramActivitySnapshot,
-  highWatermark: number
+  record: number
 ): string | null {
   if (!previous.channels || !current.channels) return null;
 
+  // A channel must have improved since the last check (a new channel counts
+  // from 0) and beaten the pool's record. The first condition keeps a value
+  // reached on another pool from being announced after a failover back.
   const previousByKey = new Map(previous.channels.map((channel) => [channel.key, channel]));
   const improved = current.channels
-    .filter((channel) => {
-      const before = previousByKey.get(channel.key);
-      return before &&
-        channel.bestDifficulty > before.bestDifficulty &&
-        channel.bestDifficulty > highWatermark;
-    })
+    .filter((channel) =>
+      channel.bestDifficulty > (previousByKey.get(channel.key)?.bestDifficulty ?? 0) &&
+      channel.bestDifficulty > record
+    )
     .sort((left, right) => right.bestDifficulty - left.bestDifficulty)[0];
 
   if (!improved) return null;
@@ -710,6 +733,7 @@ function getBestDifficultyMessage(
     lines.push(`Worker: ${formatWorkerName(improved.userIdentity)}`);
   }
   lines.push(`Difficulty: ${formatDifficulty(improved.bestDifficulty)}`);
+  lines.push(`Previous best: ${formatDifficulty(record)}`);
   return lines.join('\n');
 }
 
@@ -845,7 +869,6 @@ export class TelegramService {
   private persistChain: Promise<void> = Promise.resolve();
   private previousSnapshot: TelegramActivitySnapshot | null = null;
   private channelBaselines = new Map<string, TelegramMiningChannel>();
-  private bestDifficultyHighWatermark = 0;
   private lastSummaryAt: number | null = null;
   private lastKnownPool: { name: string; index: number } | null = null;
   private lastActivityCheckAt: number | null = null;
@@ -1063,7 +1086,6 @@ export class TelegramService {
     }
 
     this.settings = next;
-    this.resetMonitorState();
     await this.persist();
     return this.publicSettings();
   }
@@ -1151,6 +1173,7 @@ export class TelegramService {
         this.updateChannelBaselines(current.channels);
         this.updateLastKnownPool(current);
         this.lastSummaryAt = now;
+        if (this.raiseBestDifficultyRecord(current)) await this.persist();
         return;
       }
 
@@ -1174,9 +1197,12 @@ export class TelegramService {
         : current;
       this.updateChannelBaselines(current.channels);
       this.updateLastKnownPool(current);
+      const recordChanged = this.raiseBestDifficultyRecord(current);
 
       this.enqueue(messages);
       await this.flushOutbox(settings);
+      // Saved after delivery so a disk error cannot cost this round's alerts.
+      if (recordChanged) await this.persist();
     } catch (error) {
       // Telegram failures are tracked, shown in the UI and logged once per
       // change. Anything else is unexpected and is left to the caller.
@@ -1202,11 +1228,14 @@ export class TelegramService {
       : [];
     messages.push(...blockMessages);
 
-    if (settings.notifyOnBestDifficulty && blockMessages.length === 0) {
+    // No record yet means this pool is new to us: its current best becomes the
+    // record silently, as on the dashboard. An unknown pool is never checked.
+    const record = current.recordKey ? this.getBestDifficultyRecord(current.recordKey) : undefined;
+    if (settings.notifyOnBestDifficulty && blockMessages.length === 0 && record !== undefined) {
       const bestDifficultyMessage = getBestDifficultyMessage(
         channelBaselineSnapshot,
         current,
-        this.bestDifficultyHighWatermark
+        record,
       );
       if (bestDifficultyMessage) messages.push(bestDifficultyMessage);
     }
@@ -1432,7 +1461,6 @@ export class TelegramService {
     }
 
     this.settings = next;
-    this.resetMonitorState();
     await this.persist();
     await this.callApi(settings.botToken, 'answerCallbackQuery', {
       callback_query_id: callback.id,
@@ -1588,7 +1616,6 @@ export class TelegramService {
     this.lastActivityCheckAt = null;
     this.previousSnapshot = null;
     this.channelBaselines.clear();
-    this.bestDifficultyHighWatermark = 0;
     this.lastSummaryAt = null;
     this.lastKnownPool = null;
   }
@@ -1607,15 +1634,36 @@ export class TelegramService {
 
     // Replace rather than merge: channel keys include the channel id, which
     // changes on every reconnect, so merging would grow without bound over a
-    // long uptime. The best-difficulty high watermark survives the churn.
+    // long uptime. Best-difficulty records are kept separately and survive.
     this.channelBaselines.clear();
     for (const channel of channels) {
       this.channelBaselines.set(channel.key, channel);
-      this.bestDifficultyHighWatermark = Math.max(
-        this.bestDifficultyHighWatermark,
-        channel.bestDifficulty
-      );
     }
+  }
+
+  private getBestDifficultyRecord(recordKey: string): number | undefined {
+    return this.settings?.bestDifficultyRecords?.find(([key]) => key === recordKey)?.[1];
+  }
+
+  /**
+   * Raises the record of the snapshot's pool to the best difficulty seen now.
+   * Returns whether it changed, so the caller saves only real changes.
+   */
+  private raiseBestDifficultyRecord(snapshot: TelegramActivitySnapshot): boolean {
+    if (!this.settings || !snapshot.recordKey || !snapshot.channels?.length) return false;
+
+    const best = Math.max(...snapshot.channels.map((channel) => channel.bestDifficulty));
+    const record = this.getBestDifficultyRecord(snapshot.recordKey);
+    if (record !== undefined && best <= record) return false;
+
+    const records = (this.settings.bestDifficultyRecords ?? [])
+      .filter(([key]) => key !== snapshot.recordKey);
+    records.push([snapshot.recordKey, Math.max(best, record ?? 0)]);
+    this.settings = {
+      ...this.settings,
+      bestDifficultyRecords: records.slice(-MAX_BEST_DIFFICULTY_RECORDS),
+    };
+    return true;
   }
 
   private async sendMessage(botToken: string, chatId: number, text: string): Promise<void> {

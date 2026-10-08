@@ -94,6 +94,7 @@ function snapshot(
   return {
     running: true,
     poolName: 'Primary pool',
+    recordKey: 'no-jd:Primary pool',
     activePoolIndex: 0,
     hashrate: 125_000_000_000_000,
     workers: 3,
@@ -721,6 +722,8 @@ test('a disconnect always lands after queued settings writes', async (t) => {
 
 test('messages from strangers do not rewrite the settings file', async (t) => {
   const { service, settingsFile, telegram } = await pairService(t);
+  // The first check saves the pool's best-difficulty record; take it first.
+  await service.poll(async () => snapshot());
   const before = await fs.stat(settingsFile);
 
   telegram.enqueue('getUpdates', Array.from({ length: 100 }, (_, index) => ({
@@ -979,4 +982,96 @@ test('rejects null and mistyped settings instead of ignoring them', async (t) =>
   // Unknown keys are still ignored.
   await service.updateSettings({ notifyOnWorkerChange: true, chatId: 1 } as never);
   assert.equal((await service.getSettings()).notifyOnWorkerChange, true);
+});
+
+function channelSnapshot(
+  channels: Array<[key: string, bestDifficulty: number]>,
+  update: Partial<TelegramActivitySnapshot> = {},
+): TelegramActivitySnapshot {
+  return snapshot({
+    channels: channels.map(([key, bestDifficulty]) => ({
+      key,
+      userIdentity: key,
+      blocksFound: 0,
+      bestDifficulty,
+    })),
+    ...update,
+  });
+}
+
+function bestDifficultyAlerts(telegram: ReturnType<typeof createTelegramFetch>): string[] {
+  return telegram.callsFor('sendMessage')
+    .map((call) => String(call.body.text))
+    .filter((text) => text.startsWith('🏆'));
+}
+
+test('changing a setting keeps the best-difficulty record', async (t) => {
+  const { service, telegram } = await pairService(t);
+
+  await service.poll(async () => channelSnapshot([['a', 5000]]));
+  await service.updateSettings({ notifyOnWorkerChange: true });
+  await service.poll(async () => channelSnapshot([['a', 5000], ['b', 900]]));
+  assert.equal(bestDifficultyAlerts(telegram).length, 0);
+
+  await service.poll(async () => channelSnapshot([['a', 5000], ['b', 7000]]));
+  const [alert] = bestDifficultyAlerts(telegram);
+  assert.match(alert, /Difficulty: 7,000/);
+  assert.match(alert, /Previous best: 5,000/);
+});
+
+test('the record survives a restart and a stack restart', async (t) => {
+  const telegram = createTelegramFetch({ getMe: [BOT] });
+  const { service, settingsFile } = await pairService(t, telegram);
+  await service.poll(async () => channelSnapshot([['old', 5000]]));
+
+  // SV2 UI restarts: a new service loads the same file. The mining stack
+  // restarted too, so channels are new and start low.
+  const restarted = new TelegramService(settingsFile, telegram.fetchImplementation);
+  await restarted.poll(async () => channelSnapshot([['new', 0]]));
+  await restarted.poll(async () => channelSnapshot([['new', 900]]));
+  assert.equal(bestDifficultyAlerts(telegram).length, 0);
+
+  // A brand new channel that beats the record right away is announced.
+  await restarted.poll(async () => channelSnapshot([['new', 900], ['newer', 6000]]));
+  assert.match(bestDifficultyAlerts(telegram)[0], /Previous best: 5,000/);
+});
+
+test('each pool keeps its own record, like the dashboard', async (t) => {
+  const { service, telegram } = await pairService(t);
+  const primary = { poolName: 'Primary pool', recordKey: 'no-jd:Primary pool', activePoolIndex: 0 };
+  const fallback = { poolName: 'Fallback pool', recordKey: 'no-jd:Fallback pool', activePoolIndex: 1 };
+
+  await service.poll(async () => channelSnapshot([['a', 5000]], primary));
+  // First time on the fallback: its record starts from what is there now.
+  await service.poll(async () => channelSnapshot([['a', 5000]], fallback));
+  await service.poll(async () => channelSnapshot([['a', 6000]], fallback));
+  assert.match(bestDifficultyAlerts(telegram)[0], /Previous best: 5,000/);
+
+  // Back on the primary: 6000 was reached on the fallback, so it raises the
+  // primary's record silently instead of being announced again.
+  await service.poll(async () => channelSnapshot([['a', 6000]], primary));
+  assert.equal(bestDifficultyAlerts(telegram).length, 1);
+});
+
+test('no best-difficulty alert while the pool is unknown', async (t) => {
+  const { service, telegram } = await pairService(t);
+
+  await service.poll(async () => channelSnapshot([['a', 5000]]));
+  await service.poll(async () => channelSnapshot(
+    [['a', 9000]],
+    { poolName: null, recordKey: null, activePoolIndex: null },
+  ));
+  assert.equal(bestDifficultyAlerts(telegram).length, 0);
+});
+
+test('drops malformed saved records instead of the whole file', async (t) => {
+  const { settingsFile } = await pairService(t);
+  const saved = JSON.parse(await fs.readFile(settingsFile, 'utf8'));
+  await fs.writeFile(settingsFile, JSON.stringify({
+    ...saved,
+    bestDifficultyRecords: [['no-jd:Primary pool', 5000], ['bad', 'x'], 'junk'],
+  }));
+
+  const service = new TelegramService(settingsFile, createTelegramFetch().fetchImplementation);
+  assert.equal((await service.getSettings()).paired, true);
 });
