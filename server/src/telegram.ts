@@ -17,6 +17,9 @@ const MAX_POOL_NAME_LENGTH = 64;
 // getUpdates returns at most 100 updates; even with long messages a response
 // stays well below this.
 const MAX_TELEGRAM_RESPONSE_BYTES = 4 * 1024 * 1024;
+// A pairing link stops working after this long and a new one is shown, so a
+// link that leaked (a screenshot, browser history) cannot be used later.
+const PAIRING_CODE_TTL_MS = 15 * 60_000;
 // Batches scanned per "Check pairing" click while looking for the /start code.
 const MAX_PAIRING_UPDATE_BATCHES = 10;
 const BOT_TOKEN_PATTERN = /^\d{1,20}:[A-Za-z0-9_-]{20,100}$/;
@@ -94,6 +97,8 @@ type SavedTelegramSettings = TelegramAlertSettings & {
   chatId: number | null;
   recipient: string | null;
   lastUpdateId: number | null;
+  /** When the current pairing code stops working; missing or null means expired. */
+  pairingCodeExpiresAt?: number | null;
   /**
    * Best difficulty seen per `mode:pool`, the same key the dashboard's Best
    * Difficulty tile uses, so alerts and the tile agree. Oldest first.
@@ -947,6 +952,7 @@ export class TelegramService {
 
   async getSettings(): Promise<TelegramSettings> {
     await this.initialize();
+    await this.renewExpiredPairingCode();
     return this.publicSettings();
   }
 
@@ -970,7 +976,7 @@ export class TelegramService {
       botToken: token,
       botUsername: bot.username,
       botName: bot.first_name,
-      pairingCode: `sv2_${randomBytes(18).toString('base64url')}`,
+      ...this.newPairingCode(),
       chatId: null,
       recipient: null,
       lastUpdateId: null,
@@ -983,6 +989,7 @@ export class TelegramService {
 
   async pairChat(): Promise<TelegramSettings> {
     await this.initialize();
+    await this.renewExpiredPairingCode();
     const settings = this.requireConnected();
     const generation = this.generation;
 
@@ -1049,6 +1056,7 @@ export class TelegramService {
     this.replaceConnection({
       ...settings,
       pairingCode: null,
+      pairingCodeExpiresAt: null,
       chatId: chat.id,
       recipient: getRecipientLabel(chat),
       lastUpdateId: lastSeenUpdateId,
@@ -1620,6 +1628,26 @@ export class TelegramService {
 
     this.deliveryIssue = null;
     console.warn('Telegram alert delivery recovered.');
+  }
+
+  private newPairingCode(): Pick<SavedTelegramSettings, 'pairingCode' | 'pairingCodeExpiresAt'> {
+    return {
+      pairingCode: `sv2_${randomBytes(18).toString('base64url')}`,
+      pairingCodeExpiresAt: this.now() + PAIRING_CODE_TTL_MS,
+    };
+  }
+
+  /** While a bot waits to be paired, replace its pairing code once it expires. */
+  private async renewExpiredPairingCode(): Promise<void> {
+    const settings = this.settings;
+    if (!settings || settings.chatId !== null) return;
+
+    const expiresAt = settings.pairingCodeExpiresAt;
+    if (settings.pairingCode && typeof expiresAt === 'number' && this.now() < expiresAt) return;
+
+    // From here on a /start with the old code no longer matches.
+    this.settings = { ...settings, ...this.newPairingCode() };
+    await this.persist();
   }
 
   private assertGeneration(generation: number): void {

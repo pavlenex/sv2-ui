@@ -1269,3 +1269,66 @@ test('the summary is still sent on time when alerts keep firing', async (t) => {
 
   assert.equal(summaries().length, 1);
 });
+
+function startUpdate(updateId: number, code: string | null) {
+  return {
+    update_id: updateId,
+    message: {
+      message_id: updateId,
+      text: `/start ${code}`,
+      chat: { id: 987, type: 'private', username: 'miner_one' },
+    },
+  };
+}
+
+test('a pairing link expires after 15 minutes and a new one is shown', async (t) => {
+  const clock = { now: 1_000_000 };
+  const settingsFile = await createSettingsFile(t);
+  const telegram = createTelegramFetch({ getMe: [BOT] });
+  const service = new TelegramService(settingsFile, telegram.fetchImplementation, {
+    now: () => clock.now,
+  });
+  const codeOf = (url: string | null) => new URL(url ?? '').searchParams.get('start');
+
+  const firstCode = codeOf((await service.connectBot(BOT_TOKEN)).pairingUrl);
+  clock.now += 14 * 60_000;
+  assert.equal(codeOf((await service.getSettings()).pairingUrl), firstCode);
+
+  clock.now += 2 * 60_000;
+  const secondCode = codeOf((await service.getSettings()).pairingUrl);
+  assert.notEqual(secondCode, firstCode);
+
+  // The old link no longer pairs, the new one does.
+  telegram.enqueue('getUpdates', [startUpdate(1, firstCode)]);
+  await assert.rejects(service.pairChat(), TelegramConfigError);
+  telegram.enqueue('getUpdates', [startUpdate(2, secondCode)]);
+  assert.equal((await service.pairChat()).paired, true);
+});
+
+test('an expired code is replaced even if pairing is checked first', async (t) => {
+  const clock = { now: 1_000_000 };
+  const settingsFile = await createSettingsFile(t);
+  const telegram = createTelegramFetch({ getMe: [BOT] });
+  const service = new TelegramService(settingsFile, telegram.fetchImplementation, {
+    now: () => clock.now,
+  });
+  const code = new URL((await service.connectBot(BOT_TOKEN)).pairingUrl ?? '').searchParams.get('start');
+
+  clock.now += 16 * 60_000;
+  telegram.enqueue('getUpdates', [startUpdate(1, code)]);
+  await assert.rejects(service.pairChat(), TelegramConfigError);
+  assert.equal((await service.getSettings()).paired, false);
+});
+
+test('a saved pairing code without an expiry is replaced on load', async (t) => {
+  const settingsFile = await createSettingsFile(t);
+  const telegram = createTelegramFetch({ getMe: [BOT] });
+  const connected = await new TelegramService(settingsFile, telegram.fetchImplementation)
+    .connectBot(BOT_TOKEN);
+  const saved = JSON.parse(await fs.readFile(settingsFile, 'utf8'));
+  delete saved.pairingCodeExpiresAt;
+  await fs.writeFile(settingsFile, JSON.stringify(saved));
+
+  const reloaded = new TelegramService(settingsFile, telegram.fetchImplementation);
+  assert.notEqual((await reloaded.getSettings()).pairingUrl, connected.pairingUrl);
+});
