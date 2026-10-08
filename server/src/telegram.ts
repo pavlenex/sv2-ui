@@ -21,6 +21,10 @@ const BOT_TOKEN_PATTERN = /^\d{1,20}:[A-Za-z0-9_-]{20,100}$/;
 const BOT_USERNAME_PATTERN = /^[A-Za-z0-9_]{1,64}$/;
 export const MAX_MONITORING_ITEMS = 5_000;
 
+// Worker and rejected-share alerts can change every check on a busy farm, so
+// after one is sent the next waits at least this long.
+const COUNT_ALERT_COOLDOWN_MS = 15 * 60_000;
+
 // One record per mode and pool; 17 pools in two modes stay well below this.
 const MAX_BEST_DIFFICULTY_RECORDS = 64;
 
@@ -855,6 +859,31 @@ const DELIVERY_ISSUE_LOG: Partial<Record<TelegramFailureReason, string>> = {
   unreachable: 'Telegram is unreachable; alerts are queued and will be retried.',
 };
 
+/** Last value a rate-limited alert reported, and when it was sent. */
+type CountAlertState = { reported: number | null; sentAt: number | null };
+
+/**
+ * Returns the change to report for a rate-limited alert, or null. The first
+ * change is reported at once; later ones wait for the cooldown and then
+ * report everything since the last alert, so nothing is lost and a worker
+ * that drops and comes back in between sends nothing.
+ */
+function takeCountChange(
+  state: CountAlertState,
+  previous: number | null,
+  current: number | null,
+  now: number,
+): { from: number; to: number } | null {
+  state.reported ??= previous;
+  if (current === null || state.reported === null || current === state.reported) return null;
+  if (state.sentAt !== null && now - state.sentAt < COUNT_ALERT_COOLDOWN_MS) return null;
+
+  const change = { from: state.reported, to: current };
+  state.reported = current;
+  state.sentAt = now;
+  return change;
+}
+
 export class TelegramService {
   private settings: SavedTelegramSettings | null = null;
   private initialized = false;
@@ -871,6 +900,8 @@ export class TelegramService {
   private channelBaselines = new Map<string, TelegramMiningChannel>();
   private lastSummaryAt: number | null = null;
   private lastKnownPool: { name: string; index: number } | null = null;
+  private workerAlert: CountAlertState = { reported: null, sentAt: null };
+  private rejectedSharesAlert: CountAlertState = { reported: null, sentAt: null };
   private lastActivityCheckAt: number | null = null;
   /** Alerts not yet delivered, oldest first. */
   private outbox: string[] = [];
@@ -1177,7 +1208,7 @@ export class TelegramService {
         return;
       }
 
-      const messages = this.collectAlerts(settings, this.previousSnapshot, current);
+      const messages = this.collectAlerts(settings, this.previousSnapshot, current, now);
       const summaryDue = settings.summaryIntervalMinutes > 0 &&
         this.lastSummaryAt !== null &&
         now - this.lastSummaryAt >= settings.summaryIntervalMinutes * 60_000;
@@ -1217,6 +1248,7 @@ export class TelegramService {
     settings: SavedTelegramSettings,
     previous: TelegramActivitySnapshot,
     current: TelegramActivitySnapshot,
+    now: number,
   ): string[] {
     const messages: string[] = [];
     const channelBaselineSnapshot = {
@@ -1272,30 +1304,38 @@ export class TelegramService {
       if (statusMessage) messages.push(statusMessage);
     }
 
-    if (
-      settings.notifyOnWorkerChange &&
-      previous.workers !== null &&
-      current.workers !== null &&
-      previous.workers !== current.workers
-    ) {
+    // While an alert is off, keep its last value current so turning it on
+    // does not report changes from before.
+    if (!settings.notifyOnWorkerChange) this.workerAlert.reported = current.workers;
+    const workerChange = settings.notifyOnWorkerChange
+      ? takeCountChange(this.workerAlert, previous.workers, current.workers, now)
+      : null;
+    if (workerChange) {
       messages.push([
-        current.workers > previous.workers
+        workerChange.to > workerChange.from
           ? '🟢 Worker connected'
           : '🟠 Worker disconnected',
-        `Workers: ${previous.workers.toLocaleString()} → ${current.workers.toLocaleString()}`,
+        `Workers: ${workerChange.from.toLocaleString()} → ${workerChange.to.toLocaleString()}`,
       ].join('\n'));
     }
 
+    // The counter restarts at 0 with the mining stack; start counting again.
+    const rejected = this.rejectedSharesAlert;
+    rejected.reported ??= previous.sharesRejected;
     if (
-      settings.notifyOnRejectedShares &&
-      previous.sharesRejected !== null &&
-      current.sharesRejected !== null &&
-      current.sharesRejected > previous.sharesRejected
+      !settings.notifyOnRejectedShares ||
+      (current.sharesRejected !== null && rejected.reported !== null && current.sharesRejected < rejected.reported)
     ) {
+      rejected.reported = current.sharesRejected;
+    }
+    const rejectedChange = settings.notifyOnRejectedShares
+      ? takeCountChange(rejected, previous.sharesRejected, current.sharesRejected, now)
+      : null;
+    if (rejectedChange && rejectedChange.to > rejectedChange.from) {
       messages.push([
         '⚠️ Rejected shares increased',
-        `New rejected shares: ${(current.sharesRejected - previous.sharesRejected).toLocaleString()}`,
-        `Total rejected: ${current.sharesRejected.toLocaleString()}`,
+        `New rejected shares: ${(rejectedChange.to - rejectedChange.from).toLocaleString()}`,
+        `Total rejected: ${rejectedChange.to.toLocaleString()}`,
       ].join('\n'));
     }
 
@@ -1616,6 +1656,8 @@ export class TelegramService {
     this.lastActivityCheckAt = null;
     this.previousSnapshot = null;
     this.channelBaselines.clear();
+    this.workerAlert = { reported: null, sentAt: null };
+    this.rejectedSharesAlert = { reported: null, sentAt: null };
     this.lastSummaryAt = null;
     this.lastKnownPool = null;
   }
