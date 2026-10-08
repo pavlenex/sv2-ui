@@ -103,9 +103,11 @@ const AUTO_START_MAX_BACKOFF_MS = 5 * 60_000;
 const TELEGRAM_SETTINGS_FILE = path.join(CONFIG_DIR, 'telegram.json');
 // Bot commands and settings buttons are checked this often (one getUpdates call).
 const TELEGRAM_POLL_INTERVAL_MS = 5_000;
-// Mining activity for alerts (Docker inspect plus monitoring API reads) is
-// sampled less often so the background monitor stays cheap.
-const TELEGRAM_ACTIVITY_INTERVAL_MS = 30_000;
+// Mining activity for alerts (Docker inspect plus monitoring API reads). The
+// monitoring APIs refresh every 5s, so checking more often finds nothing new.
+const TELEGRAM_ACTIVITY_INTERVAL_MS = 5_000;
+// Docker gives a container 10s to stop; leave most of it for the mining stack.
+const TELEGRAM_SHUTDOWN_NOTICE_TIMEOUT_MS = 3_000;
 
 type StackBusyReason = 'auto-start' | 'manual';
 
@@ -1107,6 +1109,7 @@ type MonitoringClient = {
 
 type MonitoringSv1Client = {
   channel_id?: number | null;
+  sv1_username?: string;
 };
 
 type MonitoringItemsPage<T> = {
@@ -1238,6 +1241,7 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
   if (!status.running || !status.mode) {
     return {
       unavailable: status.dockerError !== null,
+      dockerUnreachable: status.dockerError !== null,
       running: false,
       poolName: status.poolName,
       activePoolIndex: status.activePoolIndex,
@@ -1352,6 +1356,16 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
     ? [...directSv2Channels, ...sv1Channels]
     : null;
 
+  // Named like the dashboard's worker table: SV1 username, SV2 channel identity.
+  const workerNames = sv1Clients && directSv2Channels
+    ? [
+        ...directSv2Channels.map((channel) => channel.userIdentity ?? ''),
+        ...sv1Clients.map((client) => (
+          isJsonObject(client) && typeof client.sv1_username === 'string' ? client.sv1_username : ''
+        )),
+      ]
+    : null;
+
   // A snapshot that ran out of time or items is incomplete. Report it as
   // unknown so the round is skipped instead of comparing partial data.
   if (context.signal.aborted || context.budget.remainingItems < 0) {
@@ -1375,6 +1389,9 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
     poolName: status.poolName,
     // Same key as the dashboard's Best Difficulty tile (mode + active pool).
     recordKey: status.poolName ? `${status.mode}:${status.poolName}` : null,
+    stackId: [status.containers.translator?.id, status.containers.jdc?.id]
+      .filter(Boolean)
+      .join(':') || null,
     activePoolIndex: status.activePoolIndex,
     hashrate: clients?.total_hashrate ?? global?.server?.total_hashrate ?? null,
     workers: getTelegramWorkerCount(
@@ -1382,6 +1399,7 @@ async function getTelegramActivitySnapshot(): Promise<TelegramActivitySnapshot> 
       translatorGlobal?.sv1_clients?.total_clients,
       directSv2Channels?.length ?? null,
     ),
+    workerNames,
     sharesSubmitted: sumShareCounter(serverChannels, 'shares_submitted'),
     sharesAccepted: sumShareCounter(serverChannels, 'shares_acknowledged'),
     sharesRejected: sumShareCounter(serverChannels, 'shares_rejected'),
@@ -1565,6 +1583,12 @@ async function shutdown(signal: string) {
     clearInterval(telegramMonitorTimer);
     telegramMonitorTimer = null;
   }
+
+  // Mining stops below. Tell Telegram first, but don't hold up the shutdown.
+  await Promise.race([
+    telegramService.notifyShutdown().catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, TELEGRAM_SHUTDOWN_NOTICE_TIMEOUT_MS)),
+  ]);
 
   console.log(`\n${signal} received. Stopping mining containers...`);
   try {

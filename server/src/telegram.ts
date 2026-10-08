@@ -12,7 +12,11 @@ import { ensureConfigDir } from './config-dir.js';
 const MAX_TELEGRAM_MESSAGE_LENGTH = 4096;
 // Alerts waiting to be delivered (e.g. while Telegram is unreachable).
 const MAX_PENDING_MESSAGES = 20;
-const MAX_WORKER_NAME_LENGTH = 64;
+// Fits a full `<payout address>.<worker>` identity, as the dashboard shows it.
+const MAX_WORKER_NAME_LENGTH = 128;
+const SHUTDOWN_MESSAGE = '⏹ SV2 UI is shutting down — mining stopped';
+// Worker alerts list at most this many names in one message.
+const MAX_LISTED_WORKERS = 10;
 const MAX_POOL_NAME_LENGTH = 64;
 // getUpdates returns at most 100 updates; even with long messages a response
 // stays well below this.
@@ -150,9 +154,18 @@ export type TelegramActivitySnapshot = {
   poolName: string | null;
   /** `mode:pool` the best-difficulty record belongs to; null while the pool is unknown. */
   recordKey?: string | null;
+  /**
+   * Ids of the running containers. SV2 UI recreates them on every start, so a
+   * different value between two checks means the stack restarted in between.
+   */
+  stackId?: string | null;
+  /** Docker could not be reached; mining status is unknown. */
+  dockerUnreachable?: boolean;
   activePoolIndex: number | null;
   hashrate: number | null;
   workers: number | null;
+  /** Names of the connected workers, one per worker; null when unknown. */
+  workerNames?: string[] | null;
   sharesSubmitted: number | null;
   sharesAccepted: number | null;
   sharesRejected: number | null;
@@ -641,6 +654,67 @@ export function formatTelegramStatus(
   return lines.join('\n');
 }
 
+/** `names` without one occurrence of each name in `remove`. */
+function subtractWorkerNames(names: string[], remove: string[]): string[] {
+  const toRemove = new Map<string, number>();
+  for (const name of remove) toRemove.set(name, (toRemove.get(name) ?? 0) + 1);
+  return names.filter((name) => {
+    const count = toRemove.get(name) ?? 0;
+    if (count === 0) return true;
+    toRemove.set(name, count - 1);
+    return false;
+  });
+}
+
+function listWorkers(names: string[]): string[] {
+  if (names.length === 1) return [`Worker: ${formatWorkerName(names[0])}`];
+  const lines = names.slice(0, MAX_LISTED_WORKERS).map((name) => `• ${formatWorkerName(name)}`);
+  if (names.length > MAX_LISTED_WORKERS) {
+    lines.push(`…and ${(names.length - MAX_LISTED_WORKERS).toLocaleString()} more`);
+  }
+  return lines;
+}
+
+/**
+ * Names the workers that connected or disconnected since the last check.
+ * Falls back to the totals when the names are not known.
+ */
+function getWorkerChangeMessages(
+  previous: TelegramActivitySnapshot,
+  current: TelegramActivitySnapshot,
+): string[] {
+  if (previous.workers === null || current.workers === null) return [];
+  const total = `Connected workers: ${current.workers.toLocaleString()}`;
+
+  if (!previous.workerNames || !current.workerNames) {
+    if (previous.workers === current.workers) return [];
+    let title = current.workers > previous.workers ? '🟢 Worker connected' : '🟠 Worker disconnected';
+    if (current.workers === 0) title = '🔴 All workers disconnected';
+    else if (previous.workers === 0) title = '🟢 Workers back online';
+    return [[title, total].join('\n')];
+  }
+
+  const messages: string[] = [];
+  const disconnected = subtractWorkerNames(previous.workerNames, current.workerNames);
+  const connected = subtractWorkerNames(current.workerNames, previous.workerNames);
+
+  if (disconnected.length > 0) {
+    let title = disconnected.length === 1
+      ? '🟠 Worker disconnected'
+      : `🟠 ${disconnected.length.toLocaleString()} workers disconnected`;
+    if (current.workers === 0) title = '🔴 All workers disconnected';
+    messages.push([title, ...listWorkers(disconnected), total].join('\n'));
+  }
+  if (connected.length > 0) {
+    let title = connected.length === 1
+      ? '🟢 Worker connected'
+      : `🟢 ${connected.length.toLocaleString()} workers connected`;
+    if (previous.workers === 0) title = '🟢 Workers back online';
+    messages.push([title, ...listWorkers(connected), total].join('\n'));
+  }
+  return messages;
+}
+
 function getMiningStatusChangeMessage(
   previous: TelegramActivitySnapshot,
   current: TelegramActivitySnapshot
@@ -650,6 +724,15 @@ function getMiningStatusChangeMessage(
   }
   if (previous.running && !current.running) {
     return formatTelegramStatus(current, '🔴 SV2 mining stopped');
+  }
+  if (
+    previous.running &&
+    current.running &&
+    previous.stackId &&
+    current.stackId &&
+    previous.stackId !== current.stackId
+  ) {
+    return formatTelegramStatus(current, '🔄 SV2 mining restarted');
   }
   return null;
 }
@@ -842,7 +925,8 @@ export class TelegramService {
   private previousSnapshot: TelegramActivitySnapshot | null = null;
   private channelBaselines = new Map<string, TelegramMiningChannel>();
   private lastSummaryAt: number | null = null;
-  private lastKnownPool: { name: string; index: number } | null = null;
+  private lastKnownPool: { name: string; index: number; stackId: string | null } | null = null;
+  private dockerUnreachableReported = false;
   private lastActivityCheckAt: number | null = null;
   /** Alerts not yet delivered, oldest first. */
   private outbox: string[] = [];
@@ -1083,6 +1167,26 @@ export class TelegramService {
     return getEmptySettings();
   }
 
+  /**
+   * SV2 UI stops mining when it shuts down, after its checks have stopped, so
+   * the stop would never be reported. Sent only if mining was running at the
+   * last check.
+   */
+  async notifyShutdown(): Promise<void> {
+    await this.initialize();
+    const settings = this.settings;
+    if (
+      !settings ||
+      settings.chatId === null ||
+      !settings.enabled ||
+      !settings.notifyOnStatusChange ||
+      !this.previousSnapshot?.running
+    ) {
+      return;
+    }
+    await this.sendMessage(settings.botToken, settings.chatId, SHUTDOWN_MESSAGE);
+  }
+
   async poll(snapshotProvider: () => Promise<TelegramActivitySnapshot>): Promise<void> {
     await this.initialize();
     if (this.pollInProgress) return;
@@ -1133,6 +1237,21 @@ export class TelegramService {
 
       const current = await getSnapshot();
       if (this.generation !== generation) return;
+
+      // Losing Docker is reported once, and its return once. Mining status is
+      // unknown meanwhile, so the previous state is kept for the comparison
+      // after it comes back.
+      const dockerUnreachable = current.dockerUnreachable === true;
+      if (dockerUnreachable !== this.dockerUnreachableReported) {
+        this.dockerUnreachableReported = dockerUnreachable;
+        if (settings.notifyOnStatusChange) {
+          this.enqueue([dockerUnreachable
+            ? '⚠️ SV2 UI can\'t reach Docker\nMining status is unknown until it\'s back.'
+            : '✅ SV2 UI can reach Docker again']);
+          await this.flushOutbox(settings);
+        }
+      }
+
       // Without a trustworthy status there is nothing to compare. Keep the
       // previous baseline so the next good snapshot is compared against it.
       if (current.unavailable) return;
@@ -1212,10 +1331,13 @@ export class TelegramService {
     const currentPool = current.poolName !== null && current.activePoolIndex !== null
       ? { name: current.poolName, index: current.activePoolIndex }
       : null;
+    // Only the same running stack can fail over. A different pool after a
+    // restart (a reconfigure, a new primary) is a restart, not a failover.
     if (
       settings.notifyOnPoolChange &&
       current.running &&
       this.lastKnownPool &&
+      this.lastKnownPool.stackId === (current.stackId ?? null) &&
       currentPool &&
       (
         this.lastKnownPool.index !== currentPool.index ||
@@ -1243,21 +1365,8 @@ export class TelegramService {
 
     // Every change is sent right away: a miner that keeps dropping is exactly
     // what this alert is for, and it can be turned off.
-    if (
-      settings.notifyOnWorkerChange &&
-      previous.workers !== null &&
-      current.workers !== null &&
-      previous.workers !== current.workers
-    ) {
-      const from = previous.workers;
-      const to = current.workers;
-      let title = to > from ? '🟢 Worker connected' : '🟠 Worker disconnected';
-      if (to === 0) title = '🔴 All workers disconnected';
-      else if (from === 0) title = '🟢 Workers back online';
-      messages.push([
-        title,
-        `Workers: ${from.toLocaleString()} → ${to.toLocaleString()}`,
-      ].join('\n'));
+    if (settings.notifyOnWorkerChange) {
+      messages.push(...getWorkerChangeMessages(previous, current));
     }
 
     // A lower count means the mining stack restarted, not fewer rejects.
@@ -1613,13 +1722,17 @@ export class TelegramService {
     this.channelBaselines.clear();
     this.lastSummaryAt = null;
     this.lastKnownPool = null;
+    this.dockerUnreachableReported = false;
   }
 
   private updateLastKnownPool(snapshot: TelegramActivitySnapshot): void {
-    if (snapshot.poolName !== null && snapshot.activePoolIndex !== null) {
+    if (!snapshot.running) {
+      this.lastKnownPool = null;
+    } else if (snapshot.poolName !== null && snapshot.activePoolIndex !== null) {
       this.lastKnownPool = {
         name: snapshot.poolName,
         index: snapshot.activePoolIndex,
+        stackId: snapshot.stackId ?? null,
       };
     }
   }

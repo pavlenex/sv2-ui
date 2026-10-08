@@ -647,7 +647,10 @@ test('sanitizes untrusted worker names', () => {
   );
   assert.equal(formatWorkerName('‮evil‬'), 'evil');
   assert.equal(formatWorkerName('   '), 'unnamed');
-  assert.equal(Array.from(formatWorkerName('x'.repeat(500))).length, 64);
+  assert.equal(Array.from(formatWorkerName('x'.repeat(500))).length, 128);
+  // A full address.worker identity is shown as is, like on the dashboard.
+  const identity = `bc1p${'x'.repeat(58)}.NerdAxe`;
+  assert.equal(formatWorkerName(identity), identity);
 });
 
 test('a disconnect during pairing is not undone when pairing finishes', async (t) => {
@@ -1107,7 +1110,7 @@ test('every worker change is reported, including a miner that keeps dropping', a
   await service.updateSettings({ notifyOnWorkerChange: true });
   const workerAlerts = () => telegram.callsFor('sendMessage')
     .map((call) => String(call.body.text))
-    .filter((text) => text.includes('Workers:'));
+    .filter((text) => text.includes('Connected workers:'));
 
   await service.poll(async () => snapshot({ workers: 5 }));
   for (const workers of [4, 5, 4, 5]) {
@@ -1117,8 +1120,8 @@ test('every worker change is reported, including a miner that keeps dropping', a
 
   const alerts = workerAlerts();
   assert.equal(alerts.length, 4);
-  assert.match(alerts[0], /^🟠 Worker disconnected\nWorkers: 5 → 4/);
-  assert.match(alerts[1], /^🟢 Worker connected\nWorkers: 4 → 5/);
+  assert.equal(alerts[0], '🟠 Worker disconnected\nConnected workers: 4');
+  assert.equal(alerts[1], '🟢 Worker connected\nConnected workers: 5');
 });
 
 test('turning an alert on does not report changes from before', async (t) => {
@@ -1182,7 +1185,7 @@ test('losing every worker and the recovery get their own titles', async (t) => {
   await service.updateSettings({ notifyOnWorkerChange: true });
   const workerAlerts = () => telegram.callsFor('sendMessage')
     .map((call) => String(call.body.text))
-    .filter((text) => text.includes('Workers:'));
+    .filter((text) => text.includes('Connected workers:'));
 
   await service.poll(async () => snapshot({ workers: 3 }));
   clock.now += 30_000;
@@ -1194,8 +1197,8 @@ test('losing every worker and the recovery get their own titles', async (t) => {
 
   const alerts = workerAlerts();
   assert.equal(alerts.length, 3);
-  assert.match(alerts[1], /^🔴 All workers disconnected\nWorkers: 2 → 0/);
-  assert.match(alerts[2], /^🟢 Workers back online\nWorkers: 0 → 3/);
+  assert.equal(alerts[1], '🔴 All workers disconnected\nConnected workers: 0');
+  assert.equal(alerts[2], '🟢 Workers back online\nConnected workers: 3');
 });
 
 test('after a restart, miners reconnecting are reported', async (t) => {
@@ -1216,7 +1219,7 @@ test('after a restart, miners reconnecting are reported', async (t) => {
 
   const alerts = telegram.callsFor('sendMessage')
     .map((call) => String(call.body.text))
-    .filter((text) => text.includes('Workers:'));
+    .filter((text) => text.includes('Connected workers:'));
   assert.deepEqual(alerts.map((text) => text.split('\n')[0]), ['🟢 Workers back online']);
 });
 
@@ -1329,7 +1332,117 @@ test('a first miner connecting to an empty farm is reported', async (t) => {
 
   const alerts = telegram.callsFor('sendMessage')
     .map((call) => String(call.body.text))
-    .filter((text) => text.includes('Workers:'));
+    .filter((text) => text.includes('Connected workers:'));
   assert.equal(alerts.length, 1);
-  assert.match(alerts[0], /Workers: 0 → 1/);
+  assert.match(alerts[0], /Connected workers: 1/);
+});
+
+test('worker alerts name the workers that connected or disconnected', async (t) => {
+  const clock = { now: 1_000_000 };
+  const { service, telegram } = await pairServiceWithClock(t, clock);
+  await service.updateSettings({ notifyOnWorkerChange: true });
+  const sentBefore = telegram.callsFor('sendMessage').length;
+  const poll = async (workerNames: string[]) => {
+    clock.now += 5_000;
+    await service.poll(async () => snapshot({ workers: workerNames.length, workerNames }));
+  };
+
+  await poll(['addr.NerdAxe']);
+  await poll(['addr.NerdAxe', 'addr.BitAxe']);
+  await poll(['addr.BitAxe']);
+  // One miner swapped for another: the total stays the same, both are named.
+  await poll(['addr.Rig2']);
+  await poll(['a', 'b', 'c']);
+  await poll([]);
+
+  assert.deepEqual(sentTexts(telegram, sentBefore), [
+    '🟢 Worker connected\nWorker: addr.BitAxe\nConnected workers: 2',
+    '🟠 Worker disconnected\nWorker: addr.NerdAxe\nConnected workers: 1',
+    '🟠 Worker disconnected\nWorker: addr.BitAxe\nConnected workers: 1',
+    '🟢 Worker connected\nWorker: addr.Rig2\nConnected workers: 1',
+    '🟠 Worker disconnected\nWorker: addr.Rig2\nConnected workers: 3',
+    '🟢 3 workers connected\n• a\n• b\n• c\nConnected workers: 3',
+    '🔴 All workers disconnected\n• a\n• b\n• c\nConnected workers: 0',
+  ]);
+});
+
+function sentTexts(telegram: ReturnType<typeof createTelegramFetch>, sentBefore: number): string[] {
+  return telegram.callsFor('sendMessage').slice(sentBefore).map((call) => String(call.body.text));
+}
+
+test('a new primary after a restart is not reported as a failover', async (t) => {
+  const { service, telegram } = await pairService(t);
+  await service.updateSettings({ notifyOnStatusChange: true });
+  const sentBefore = telegram.callsFor('sendMessage').length;
+
+  await service.poll(async () => snapshot({ poolName: 'Old pool', activePoolIndex: 0, stackId: 'a' }));
+  // Reconfigured with a new primary; the restart happened between two checks.
+  await service.poll(async () => snapshot({ poolName: 'New pool', activePoolIndex: 0, stackId: 'b' }));
+  // Reset and set up again: a stopped check in between.
+  await service.poll(async () => snapshot({ running: false, poolName: null, activePoolIndex: null, stackId: null }));
+  await service.poll(async () => snapshot({ poolName: 'Other pool', activePoolIndex: 0, stackId: 'c' }));
+
+  const sent = sentTexts(telegram, sentBefore);
+  assert.equal(sent.filter((text) => text.startsWith('🔁 Pool failover')).length, 0);
+  assert.deepEqual(sent.map((text) => text.split('\n')[0]), [
+    '🔄 SV2 mining restarted',
+    '🔴 SV2 mining stopped',
+    '🟢 SV2 mining started',
+  ]);
+});
+
+test('a failover on the same running stack is still reported', async (t) => {
+  const { service, telegram } = await pairService(t);
+  const sentBefore = telegram.callsFor('sendMessage').length;
+
+  await service.poll(async () => snapshot({ poolName: 'Primary pool', activePoolIndex: 0, stackId: 'a' }));
+  await service.poll(async () => snapshot({ poolName: 'Fallback pool', activePoolIndex: 1, stackId: 'a' }));
+
+  assert.match(sentTexts(telegram, sentBefore)[0], /^🔁 Pool failover\nFrom: Primary pool\nTo: Fallback pool/);
+});
+
+test('shutting down SV2 UI reports that mining stopped, only if it was running', async (t) => {
+  const { service, telegram } = await pairService(t);
+  await service.updateSettings({ notifyOnStatusChange: true });
+  const sentBefore = telegram.callsFor('sendMessage').length;
+
+  // No check yet, then stopped: nothing to report.
+  await service.notifyShutdown();
+  await service.poll(async () => snapshot({ running: false }));
+  await service.notifyShutdown();
+  await service.poll(async () => snapshot({ running: true }));
+  await service.notifyShutdown();
+  await service.updateSettings({ notifyOnStatusChange: false });
+  await service.notifyShutdown();
+
+  assert.deepEqual(sentTexts(telegram, sentBefore).map((text) => text.split('\n')[0]), [
+    '🟢 SV2 mining started',
+    '⏹ SV2 UI is shutting down — mining stopped',
+  ]);
+});
+
+test('a Docker restart is reported, and the stack restart after it', async (t) => {
+  const { service, telegram } = await pairService(t);
+  await service.updateSettings({ notifyOnStatusChange: true });
+  const sentBefore = telegram.callsFor('sendMessage').length;
+  const dockerDown = snapshot({
+    unavailable: true,
+    dockerUnreachable: true,
+    running: false,
+    poolName: null,
+    activePoolIndex: null,
+    channels: null,
+  });
+
+  await service.poll(async () => snapshot({ stackId: 'a' }));
+  await service.poll(async () => dockerDown);
+  await service.poll(async () => dockerDown);
+  // Docker is back and SV2 UI already started the stack again.
+  await service.poll(async () => snapshot({ stackId: 'b' }));
+
+  assert.deepEqual(sentTexts(telegram, sentBefore).map((text) => text.split('\n')[0]), [
+    '⚠️ SV2 UI can\'t reach Docker',
+    '✅ SV2 UI can reach Docker again',
+    '🔄 SV2 mining restarted',
+  ]);
 });
