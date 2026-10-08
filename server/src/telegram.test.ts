@@ -1252,3 +1252,20 @@ test('restarting mining does not report workers dropping to 0 and back', async (
     0,
   );
 });
+
+test('the summary is still sent on time when alerts keep firing', async (t) => {
+  const clock = { now: 1_000_000 };
+  const { service, telegram } = await pairServiceWithClock(t, clock);
+  await service.updateSettings({ notifyOnWorkerChange: true, summaryIntervalMinutes: 15 });
+  const summaries = () => telegram.callsFor('sendMessage')
+    .filter((call) => String(call.body.text).startsWith('⛏ SV2 mining status'));
+
+  await service.poll(async () => snapshot({ workers: 5 }));
+  // A worker change every minute for 15 minutes.
+  for (let minute = 1; minute <= 15; minute += 1) {
+    clock.now += 60_000;
+    await service.poll(async () => snapshot({ workers: minute % 2 === 0 ? 5 : 4 }));
+  }
+
+  assert.equal(summaries().length, 1);
+});

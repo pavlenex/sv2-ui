@@ -1200,9 +1200,9 @@ export class TelegramService {
         this.lastSummaryAt !== null &&
         now - this.lastSummaryAt >= settings.summaryIntervalMinutes * 60_000;
 
-      if (messages.length > 0) {
-        this.lastSummaryAt = now;
-      } else if (summaryDue) {
+      // Only a summary restarts the summary timer, so alerts on a busy farm
+      // cannot keep pushing it back.
+      if (summaryDue) {
         messages.push(formatTelegramStatus(current));
         this.lastSummaryAt = now;
       }
