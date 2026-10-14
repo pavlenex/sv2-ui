@@ -71,7 +71,8 @@ function RecoveryKeyPanel({
 
         <p className="text-xs text-muted-foreground text-center">
           Store it somewhere safe. If you lose both your password and this key,
-          recovering the device means erasing its config volume.
+          you can reset your password by deleting credential.json from the
+          app&apos;s config folder. Your mining settings are kept.
         </p>
 
         <Button type="button" size="lg" className="w-full rounded-full" onClick={onDone}>

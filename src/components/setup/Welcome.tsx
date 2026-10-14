@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Miner3D, type MinerPhase } from './steps/Miner3D';
 import { ThemeToggle, useTheme } from './OnboardingLayout';
 
@@ -53,8 +53,8 @@ export function Welcome({ onStart }: { onStart: () => void }) {
 
       {/* ── Miner hero ── */}
       {/* zoom rather than transform: scale, so the 3D faces are drawn at full size and stay sharp.
-          Thin cyan lines wash out on white, so light mode draws the miner a few shades deeper. */}
-      <div style={{ zoom, ...(isDark ? null : { '--primary': '194 100% 30%' }) } as CSSProperties}>
+          Thin lines wash out on white, so light mode darkens whatever the primary colour is. */}
+      <div style={{ zoom, filter: isDark ? undefined : 'brightness(0.65)' }}>
         <Miner3D phase={phase} />
       </div>
 

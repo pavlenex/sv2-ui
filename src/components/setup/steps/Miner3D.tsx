@@ -198,7 +198,7 @@ export function Miner3D({ phase }: Miner3DProps) {
       if (resetRef.current) {
         rot.x += (DEF_ROT.x - rot.x) * ease(120);
         rot.y += (DEF_ROT.y - rot.y) * ease(120);
-        if (Math.abs(DEF_ROT.y - rot.y) < 0.05) resetRef.current = false;
+        if (Math.abs(DEF_ROT.x - rot.x) < 0.05 && Math.abs(DEF_ROT.y - rot.y) < 0.05) resetRef.current = false;
       } else if (!drag.current) {
         rot.y += rotVelRef.current * dt;
         rotVelRef.current *= Math.pow(0.5, dt / SPIN_HALF_LIFE);
